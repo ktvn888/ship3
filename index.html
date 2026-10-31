@@ -1,3 +1,4 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -57,8 +58,8 @@ nav span{display:block;font-size:20px}
 <script>
 /* ================= DỮ LIỆU ================= */
 const K='grab_tinh_tien_v1';
-const TYPES={bike:'Grab Bike',food:'Grab Food',express:'Grab Express',ngoai:'Cuốc ngoài'};
-const PAYS={cash:'Tiền mặt',bank:'Chuyển khoản',card:'Thẻ/Ví điện tử'};
+const TYPES={bike:'Grab Bike',food:'Grab Food',mart:'Grab Mart',express:'Grab Express',ngoai:'Cuốc ngoài'};
+const PAYS={cash:'Tiền mặt',bank:'Chuyển khoản',split:'Nửa tiền mặt, nửa CK',card:'Thẻ/Ví điện tử'};
 const STAT={run:'Đang chạy',done:'Hoàn thành',cancel:'Huỷ'};
 const def=()=>({trips:[],exps:[],credit:{bal:0,log:[]},driver:{bal:0,log:[]},shift:null,shifts:[],seq:0,
  set:{goal:1000000,bikeRate:20,cashFee:true,cashNet:true,theme:''}});
@@ -101,15 +102,36 @@ function fx(t){
 const tname=t=>TYPES[t.type]+' #'+t.no;
 /* Hoàn tác phần đã áp lên ví, rồi áp lại theo dữ liệu mới */
 function revert(t,why){if(t.applied){adj('credit',-t.applied.c,why+' '+tname(t));adj('driver',-t.applied.d,why+' '+tname(t));t.applied=null}}
-function applyTrip(t){const f=fx(t);adj('credit',f.c,'Trừ tiền phải thu '+tname(t));const tw=t.pay==='card'?t.tip||0:0;adj('driver',f.d-(t.bonus||0)-tw,'Tiền ròng '+tname(t));adj('driver',t.bonus||0,'Thưởng '+tname(t));adj('driver',tw,'Tip '+tname(t));t.applied=f}
+let lastShort=0; // số tiền ví tín dụng thiếu của lần áp ví gần nhất (để báo cho người dùng)
+function applyTrip(t){const f=fx(t);
+ /* Ví tín dụng không đủ thì phần thiếu được trích từ ví tài xế */
+ const short=Math.max(0,-f.c-Math.max(0,S.credit.bal));lastShort=short;
+ adj('credit',f.c+short,'Trừ tiền phải thu '+tname(t)+(short?' (phần thiếu trích ví tài xế)':''));
+ const tw=t.pay==='card'?t.tip||0:0;adj('driver',f.d-(t.bonus||0)-tw,'Tiền ròng '+tname(t));adj('driver',t.bonus||0,'Thưởng '+tname(t));adj('driver',tw,'Tip '+tname(t));
+ adj('driver',-short,'Bù thiếu ví tín dụng '+tname(t));
+ t.applied={c:f.c+short,d:f.d-short}}
 /* Kiểm tra ví tín dụng có đủ không trước khi áp */
-function creditOk(t,old,go){const after=S.credit.bal-(old&&old.applied?old.applied.c:0)+fx(t).c;
- if(after>=0)go();else ask('Ví tín dụng không đủ (còn '+money(S.credit.bal)+', sau cuốc này '+money(after)+'). Vẫn tiếp tục?',go)}
+function creditOk(t,old,go){
+ const n=fx(t),avail=Math.max(0,S.credit.bal-(old&&old.applied?old.applied.c:0)),short=Math.max(0,-n.c-avail);
+ if(!short)return go();
+ /* Phần thiếu trích từ ví tài xế; chỉ hỏi khi ví tài xế cũng không đủ */
+ const drv=S.driver.bal-(old&&old.applied?old.applied.d:0)+n.d-short;
+ if(drv>=0)go();else ask('Ví tín dụng thiếu '+money(short)+' và ví tài xế cũng không đủ (sau cuốc này còn '+money(drv)+'). Vẫn tiếp tục?',go)}
 function cashOf(t){ // tiền mặt vào két của 1 cuốc hoàn thành
- if(t.subs&&t.status==='done'){let i=0,o=0;t.subs.forEach(x=>{if(x.pay==='cash'){const g=x.given||x.due;i+=g;o+=g-x.due}});return{in:i+(t.tipOut||0),out:o}}
+ if(t.subs&&t.status==='done'){let i=0,o=0;t.subs.forEach(x=>{if(x.pay==='cash'){const g=x.given||x.due;i+=g;o+=g-x.due}else if(x.pay==='split'){const s=splitOf(x);i+=s.c;o+=s.ch}});return{in:i+(t.tipOut||0),out:o}}
  if(t.status!=='done')return{in:0,out:0};
+ if(t.pay==='split'){const s=splitOf(t,t.tip);return{in:s.c+(t.tipOut||0),out:s.ch}} // nửa tiền mặt: chỉ phần tiền mặt vào két
  if(t.pay!=='cash')return{in:t.tipOut||0,out:0}; // thẻ/ví/chuyển khoản: chỉ có tip ngoài là tiền mặt
  const tp=t.tip||0,g=t.type==='ngoai'?t.due:(t.given||t.due+tp);return{in:g+(t.tipOut||0),out:g-t.due-tp}}
+
+/* Chia đôi tiền mặt / chuyển khoản: c = tiền mặt khách đưa, b = khách chuyển khoản, ch = tiền trả lại khách (bằng tiền mặt) */
+function splitOf(x,tip){const c=x.cashPart||0,b=x.bankPart||0;return{c,b,ch:Math.max(0,c+b-x.due-(tip||0))}}
+/* Chênh lệch phải thu - ròng. Ròng có thể lớn hơn phải thu (khách dùng voucher, Grab bù) */
+function feeInfo(due,net,bike){const fee=due-net;
+ if(bike){
+  if(fee<0)return `Grab bù thêm: <b>${money(-fee)}</b> (ròng cao hơn phải thu, vd voucher)<br>Bạn nhận: <b>${money(net)}</b>`;
+  return `Grab lấy: <b>${money(fee)}</b>${due?` (${(fee/due*100).toFixed(1)}%)`:''}<br>Bạn nhận: <b>${money(net)}</b>${due?` (${(net/due*100).toFixed(1)}%)`:''}`}
+ return fee<0?`Chênh lệch: <b>+${money(-fee)}</b> (ròng cao hơn phải thu)`:`Chênh lệch: <b>${money(fee)}</b>`}
 
 /* ================= FORM CUỐC ================= */
 let f={};
@@ -121,9 +143,9 @@ function tripForm(id){
  const seg=(k,o)=>`<div class="seg" data-k="${k}">`+Object.entries(o).map(([v,l])=>`<button type="button" data-v="${v}" class="${f[k]===v?'on':''}">${l}</button>`).join('')+'</div>';
  sheet(`<h2 style="margin-top:0">${old?'Sửa cuốc':'Thêm cuốc'}</h2>
  <label>Loại cuốc</label>${seg('type',TYPES)}
- <div id="fGrpW"><label>Kiểu Grab Food</label>${seg('grp',{0:'Đơn lẻ',1:'Nhóm đơn'})}</div>
+ <div id="fGrpW"><label>Kiểu cuốc (Food/Mart)</label>${seg('grp',{0:'Đơn lẻ',1:'Nhóm đơn'})}</div>
  <div id="fSubsW"><label>Các đơn trong nhóm</label><div id="fSubs"></div><button type="button" class="f" style="width:100%;margin-top:8px" onclick="subAdd()">+ Thêm đơn</button></div>
- <div id="fApp"><div id="fDueW"><label>Tiền phải thu của khách</label><input id="fDue" type="number" inputmode="numeric" min="0" value="${f.due||''}"></div>
+ <div id="fApp"><div id="fDueW"><label>Tiền phải thu của khách (nhập 0 nếu voucher trừ hết)</label><input id="fDue" type="number" inputmode="numeric" min="0" value="${f.due||''}"></div>
  <label id="fNetL">Tiền ròng thực nhận</label><input id="fNet" type="number" inputmode="numeric" min="0" value="${f.net||''}">
  <label>Tiền thưởng cuốc (nếu có)</label><input id="fBonus" type="number" inputmode="numeric" min="0" value="${f.bonus||''}">
  <label>Tip ngoài (khách tặng tiền mặt riêng, không qua app)</label><input id="fTipOut" type="number" inputmode="numeric" min="0" value="${f.tipOut||''}"></div>
@@ -131,6 +153,8 @@ function tripForm(id){
  <label id="fPayL">Hình thức thanh toán</label><div id="fPay"></div>
  <div id="fCash"><label id="fGivenL">Khách đưa</label><input id="fGiven" type="number" inputmode="numeric" min="0" value="${f.given||''}">
  <div class="chips" id="fChips"></div></div>
+ <div id="fSplit"><label>Khách đưa tiền mặt</label><input id="fSC" type="number" inputmode="numeric" min="0" value="${f.cashPart||''}"><div class="chips" id="fSChips"></div>
+ <label>Khách chuyển khoản</label><input id="fSB" type="number" inputmode="numeric" min="0" value="${f.bankPart||''}"></div>
  <div id="fTipW"><label>Tip (nếu có)</label><input id="fTip" type="number" inputmode="numeric" min="0" value="${f.tip||''}"></div>
  <div class="card" id="fPrev" style="margin:12px 0 0"></div>
  <label>Trạng thái</label>${seg('status',STAT)}
@@ -138,9 +162,10 @@ function tripForm(id){
  <div class="row" style="margin-top:14px"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="saveTrip(${id||0})">Lưu</button></div>`);
  document.querySelectorAll('.seg[data-k]').forEach(g=>g.onclick=e=>{const b=e.target.closest('button');if(!b)return;
   f[g.dataset.k]=b.dataset.v;g.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));fview()});
- ['fDue','fNet','fBonus','fTipOut','fTip','fAmt','fGiven'].forEach(i=>$(i).oninput=()=>{if(i==='fNet')f.touched=true;fview(i)});
+ ['fDue','fNet','fBonus','fTipOut','fTip','fAmt','fGiven','fSC','fSB'].forEach(i=>$(i).oninput=()=>{if(i==='fNet')f.touched=true;fview(i)});
  $('fChips').innerHTML=[20000,50000,100000,200000,500000].map(v=>`<button type="button" class="s" onclick="$('fGiven').value=${v};fview()">${v/1000}k</button>`).join('')+
-  '<button type="button" class="s" onclick="$(\'fGiven\').value=f.due;fview()">Đủ tiền</button>';
+  '<button type="button" class="s" onclick="$(\'fGiven\').value=f.dueV;fview()">Đủ tiền</button>';
+ $('fSChips').innerHTML=[20000,50000,100000,200000].map(v=>`<button type="button" class="s" onclick="$('fSC').value=${v};fview()">${v/1000}k</button>`).join('');
  renderSubs();fview();
 }
 /* Cập nhật giao diện form theo loại/thanh toán và tính tiền trả lại, phí, % */
@@ -148,24 +173,28 @@ function tripForm(id){
 function groupPrev(due,net){const by={};(f.subs||[]).forEach(x=>{by[x.pay]=(by[x.pay]||0)+num(x.due)});
  return 'Tổng phải thu: <b>'+money(due)+'</b><br>Tổng ròng: <b>'+money(net)+'</b><br>Chênh lệch: <b>'+money(due-net)+'</b><br>'+Object.entries(by).map(([k,v])=>PAYS[k]+': '+money(v)).join(' · ')}
 function renderSubs(){$('fSubs').innerHTML=f.subs.map((x,i)=>`<div class="card" style="margin:8px 0 0"><div class="row sp"><b>Đơn ${i+1}</b>${f.subs.length>1?`<button type="button" class="s d" onclick="subDel(${i})">Xoá</button>`:''}</div>
+ <div class="seg" style="margin-top:8px">${[['food','Grab Food'],['mart','Grab Mart']].map(([v,l])=>`<button type="button" class="${(x.kind||f.type)===v?'on':''}" onclick="subKind(${i},'${v}')">${l}</button>`).join('')}</div>
  <label>Tiền phải thu</label><input type="number" inputmode="numeric" min="0" value="${x.due||''}" oninput="subSet(${i},'due',this.value)">
  <label>Thanh toán</label><div class="seg">${Object.entries(PAYS).map(([v,l])=>`<button type="button" class="${x.pay===v?'on':''}" onclick="subPay(${i},'${v}')">${l}</button>`).join('')}</div>
- ${x.pay==='cash'?`<label>Khách đưa (để trống nếu đủ)</label><input type="number" inputmode="numeric" min="0" value="${x.given||''}" oninput="subSet(${i},'given',this.value)"><div class="mu" id="sc${i}"></div>`:''}</div>`).join('');fview()}
+ ${x.pay==='cash'?`<label>Khách đưa (để trống nếu đủ)</label><input type="number" inputmode="numeric" min="0" value="${x.given||''}" oninput="subSet(${i},'given',this.value)"><div class="mu" id="sc${i}"></div>`:''}
+ ${x.pay==='split'?`<label>Khách đưa tiền mặt</label><input type="number" inputmode="numeric" min="0" value="${x.cashPart||''}" oninput="subSet(${i},'cashPart',this.value)"><label>Khách chuyển khoản</label><input type="number" inputmode="numeric" min="0" value="${x.bankPart||''}" oninput="subSet(${i},'bankPart',this.value)"><div class="mu" id="sc${i}"></div>`:''}</div>`).join('');fview()}
 function subSet(i,k,v){f.subs[i][k]=num(v);fview()}
+function subKind(i,v){f.subs[i].kind=v;renderSubs()}
 function subPay(i,v){f.subs[i].pay=v;renderSubs()}
-function subAdd(){f.subs.push({due:0,pay:'cash',given:0});renderSubs()}
+function subAdd(){f.subs.push({due:0,pay:'cash',given:0,kind:f.type});renderSubs()}
 function subDel(i){f.subs.splice(i,1);renderSubs()}
 function fview(src){
  const ng=f.type==='ngoai';
- const isG=f.type==='food'&&f.grp==='1';f.isG=isG;
+ const isG=(f.type==='food'||f.type==='mart')&&f.grp==='1';f.isG=isG;
+ const sp=f.pay==='split'&&!isG;
  if(f.pay==='mixed'&&!isG)f.pay='cash';
- $('fGrpW').style.display=f.type==='food'?'':'none';$('fSubsW').style.display=isG?'':'none';
+ $('fGrpW').style.display=(f.type==='food'||f.type==='mart')?'':'none';$('fSubsW').style.display=isG?'':'none';
  $('fDueW').style.display=isG?'none':'';$('fPayL').style.display=$('fPay').style.display=isG?'none':'';
  $('fNetL').textContent=isG?'Tổng thu nhập ròng của cả nhóm':'Tiền ròng thực nhận';
 
  if(ng&&f.pay==='card')f.pay='cash';
- $('fApp').style.display=ng?'none':'';$('fOut').style.display=ng?'':'none';
- const o=ng?{cash:PAYS.cash,bank:PAYS.bank}:PAYS;
+ $('fApp').style.display=ng?'none':'';$('fOut').style.display=(ng&&!sp)?'':'none';$('fSplit').style.display=sp?'':'none';
+ const o=ng?{cash:PAYS.cash,bank:PAYS.bank,split:PAYS.split}:PAYS;
  $('fPay').innerHTML='<div class="seg">'+Object.entries(o).map(([v,l])=>`<button type="button" data-v="${v}" class="${f.pay===v?'on':''}">${l}</button>`).join('')+'</div>';
  $('fPay').onclick=e=>{const b=e.target.closest('button');if(b){f.pay=b.dataset.v;fview()}};
  const bk=f.pay==='bank';
@@ -173,40 +202,45 @@ function fview(src){
  $('fGivenL').textContent=bk?'Khách chuyển khoản (để trống nếu đúng số tiền)':'Khách đưa';
  $('fChips').style.display=bk?'none':'';
  $('fTipW').style.display=(!ng&&!bk&&!isG)?'':'none';
- const due=ng?num($('fAmt').value):isG?(f.subs||[]).reduce((a,x)=>a+num(x.due),0):num($('fDue').value), net=ng?due:num($('fNet').value), g=isG?0:num($('fGiven').value);
- f.dueV=due;f.netV=net;f.givenV=g;f.bonusV=ng?0:num($('fBonus').value);f.tipOutV=ng?0:num($('fTipOut').value);
+ const due=ng?(sp?num($('fSC').value)+num($('fSB').value):num($('fAmt').value)):isG?(f.subs||[]).reduce((a,x)=>a+num(x.due),0):num($('fDue').value), net=ng?due:num($('fNet').value), g=isG?0:num($('fGiven').value);
+ f.dueV=due;f.netV=net;f.givenV=g;f.cashV=num($('fSC').value);f.bankV=num($('fSB').value);f.bonusV=ng?0:num($('fBonus').value);f.tipOutV=ng?0:num($('fTipOut').value);
  /* Chuyển khoản: tip tự tính = khách chuyển − phải thu (nếu chuyển dư) */
  f.tipV=(ng||isG)?0:(f.pay==='bank'?Math.max(0,g-due):num($('fTip').value));
  let h='';
  if(!ng){const fee=due-net;
-  h+=f.type==='bike'?`Grab lấy: <b>${money(fee)}</b> (${due?(fee/due*100).toFixed(1):0}%)<br>Bạn nhận: <b>${money(net)}</b> (${due?(net/due*100).toFixed(1):0}%)`:`Chênh lệch: <b>${money(fee)}</b>`;
+  h+=feeInfo(due,net,f.type==='bike');
   if(f.pay==='cash')h+=`<br>Tiền trả lại khách: <b class="${g&&g<due+f.tipV?'neg':''}">${g?money(g-due-f.tipV):'—'}</b>`;
   if(f.pay==='card')h+='<br><span class="mu">Khách đã trả trong app, không thu tiền mặt.</span>';
   if(f.pay==='bank')h+='<br><span class="mu">Khách chuyển khoản, không có tiền mặt vào két.</span>';
  }else h='Thực nhận: <b>'+money(due)+'</b>';
- if(isG){h=groupPrev(due,net);(f.subs||[]).forEach((x,i)=>{const e=$('sc'+i);if(e)e.textContent=x.pay==='cash'&&x.given?'Trả lại: '+money(x.given-x.due):''})}
+ if(sp){const c=f.cashV,b=f.bankV,ch=Math.max(0,c+b-due-f.tipV);h+='<br>Tiền mặt: <b>'+money(c)+'</b> · Chuyển khoản: <b>'+money(b)+'</b>'+(ch?'<br>Tiền trả lại khách: <b>'+money(ch)+'</b>':'')+(c+b<due+f.tipV?'<br><span class="neg">Khách trả chưa đủ</span>':'')}
+ if(isG){h=groupPrev(due,net);(f.subs||[]).forEach((x,i)=>{const e=$('sc'+i);if(e)e.textContent=x.pay==='cash'&&x.given?'Trả lại: '+money(x.given-x.due):(x.pay==='split'&&splitOf(x).ch?'Trả lại: '+money(splitOf(x).ch):'')})}
  if(f.tipOutV)h+='<br>Tip ngoài: <b>+'+money(f.tipOutV)+'</b> (tiền mặt, vào két)';
  if(f.tipV)h+='<br>Tip: <b>+'+money(f.tipV)+'</b>'+(f.pay==='bank'?' (khách chuyển dư, tự tính)':'');
  if(f.bonusV)h+='<br>Thưởng: <b>+'+money(f.bonusV)+'</b> vào ví tài xế';
+ if(f.status==='done'&&S.set.cashFee&&!ng){const need=isG?f.subs.filter(x=>x.pay!=='card').reduce((a,x)=>a+num(x.due),0):(f.pay!=='card'?due:0),av=Math.max(0,S.credit.bal-(f.applied?f.applied.c:0));
+  if(need>av)h+='<br><span class="warn">Ví tín dụng thiếu '+money(need-av)+', sẽ trích từ ví tài xế.</span>'}
  $('fPrev').innerHTML=h;
 }
 function saveTrip(id){
- const ng=f.type==='ngoai',isG=f.isG,due=f.dueV,net=f.netV,g=f.givenV;
- if(!due)return alert('Hãy nhập số tiền.');
- if(net>due)return alert('Tiền ròng không được lớn hơn tiền phải thu.');
- if(isG){if(!f.subs.length||f.subs.some(x=>!num(x.due)))return alert('Mỗi đơn cần nhập tiền phải thu.');
-  if(f.subs.some(x=>x.pay==='cash'&&num(x.given)&&num(x.given)<num(x.due)))return alert('Có đơn tiền mặt khách đưa chưa đủ.')}
+ const ng=f.type==='ngoai',isG=f.isG,due=f.dueV,net=f.netV,g=f.givenV,sp=f.pay==='split'&&!isG;
+ /* Cuốc ngoài cần số tiền; cuốc app có thể có phải thu = 0 (voucher) và ròng bất kỳ, ròng được phép lớn hơn phải thu */
+ if(ng?!due:(!due&&!net))return alert('Hãy nhập số tiền.');
+ if(isG){if(!f.subs.length)return alert('Cần ít nhất 1 đơn.');
+  if(f.subs.some(x=>x.pay==='cash'&&num(x.given)&&num(x.given)<num(x.due)))return alert('Có đơn tiền mặt khách đưa chưa đủ.');
+  if(f.subs.some(x=>x.pay==='split'&&num(x.cashPart)+num(x.bankPart)<num(x.due)))return alert('Có đơn nửa tiền mặt nửa CK khách trả chưa đủ.')}
+ if(sp&&f.cashV+f.bankV<due+f.tipV)return alert('Khách trả (tiền mặt + chuyển khoản) chưa đủ tiền phải thu + tip.');
  if(!ng&&!isG&&f.pay==='cash'&&g&&g<due+f.tipV)return alert('Khách đưa chưa đủ tiền phải thu + tip.');
  if(!ng&&!isG&&f.pay==='bank'&&g&&g<due)return alert('Khách chuyển chưa đủ tiền phải thu.');
  const old=S.trips.find(t=>t.id===id);
- const t={id:old?old.id:Date.now(),no:old?old.no:++S.seq,type:f.type,pay:isG?'mixed':f.pay,subs:isG?f.subs.map(x=>({due:num(x.due),pay:x.pay,given:x.pay==='cash'?num(x.given):0})):undefined,status:f.status,due,net,given:(!ng&&(f.pay==='cash'||f.pay==='bank'))?g:0,tip:f.tipV,
+ const t={id:old?old.id:Date.now(),no:old?old.no:++S.seq,type:f.type,pay:isG?'mixed':f.pay,subs:isG?f.subs.map(x=>({kind:x.kind||f.type,due:num(x.due),pay:x.pay,given:x.pay==='cash'?num(x.given):0,cashPart:x.pay==='split'?num(x.cashPart):0,bankPart:x.pay==='split'?num(x.bankPart):0})):undefined,status:f.status,due,net,given:(!ng&&(f.pay==='cash'||f.pay==='bank'))?g:0,cashPart:sp?f.cashV:(ng&&f.pay==='split'?f.cashV:0),bankPart:f.pay==='split'?f.bankV:0,tip:f.tipV,
   bonus:ng?0:f.bonusV,tipOut:ng?0:f.tipOutV,note:$('fNote').value.trim(),ts:old?old.ts:Date.now(),applied:old?old.applied:null};
  creditOk(t,old,()=>{revert(t,'Hoàn tác');applyTrip(t);
   const i=S.trips.findIndex(x=>x.id===t.id);if(i>=0)S.trips[i]=t;else S.trips.push(t);
-  save();closeSheet();render();toast('Đã lưu cuốc')})}
+  save();closeSheet();render();toast('Đã lưu cuốc'+(lastShort?'. Ví tín dụng thiếu '+money(lastShort)+', đã trích từ ví tài xế':''))})}
 function setStatus(id,st){
  const t=S.trips.find(x=>x.id===id);if(!t||t.status===st)return;
- const n={...t,status:st};creditOk(n,t,()=>{revert(t,'Hoàn tác');t.status=st;applyTrip(t);save();render()})}
+ const n={...t,status:st};creditOk(n,t,()=>{revert(t,'Hoàn tác');t.status=st;applyTrip(t);save();render();if(lastShort)toast('Ví tín dụng thiếu '+money(lastShort)+', đã trích từ ví tài xế')})}
 /* Xoá nhiều cuốc: hoàn lại ví cho từng cuốc đã hoàn thành rồi bỏ khỏi lịch sử */
 function delMany(ids){S.trips.filter(t=>ids.includes(t.id)).forEach(t=>revert(t,'Xoá'));
  S.trips=S.trips.filter(t=>!ids.includes(t.id));save();render();toast('Đã xoá '+ids.length+' cuốc')}
@@ -220,9 +254,10 @@ function delAllTrips(){if(!S.trips.length)return toast('Chưa có cuốc nào');
 function tripCard(t,btn=true){
  const fee=t.due-t.net;
  let info=t.type==='ngoai'?`Nhận <b>${money(t.due)}</b>`:`Thu ${money(t.due)} → ròng <b>${money(t.net)}</b><br>`+
-  (t.type==='bike'?`Grab lấy ${money(fee)} (${t.due?(fee/t.due*100).toFixed(1):0}%) · Bạn nhận ${t.due?(t.net/t.due*100).toFixed(1):0}%`:`Chênh lệch ${money(fee)}`)+
+  feeInfo(t.due,t.net,t.type==='bike')+
   (t.pay==='cash'&&t.given?` · Trả lại ${money(t.given-t.due-(t.tip||0))}`:'');
- if(t.subs)info+=t.subs.map((x,i)=>`<br>• Đơn ${i+1}: <b>${money(x.due)}</b> · ${PAYS[x.pay]}${x.pay==='cash'&&x.given?` (trả lại ${money(x.given-x.due)})`:''}`).join('');
+ if(t.pay==='split')info+=`<br>Tiền mặt <b>${money(t.cashPart||0)}</b> + Chuyển khoản <b>${money(t.bankPart||0)}</b>`+(splitOf(t,t.tip).ch?` · Trả lại ${money(splitOf(t,t.tip).ch)}`:'');
+ if(t.subs)info+=t.subs.map((x,i)=>`<br>• Đơn ${i+1} ${TYPES[x.kind||t.type]}: <b>${money(x.due)}</b> · ${PAYS[x.pay]}${x.pay==='cash'&&x.given?` (trả lại ${money(x.given-x.due)})`:''}${x.pay==='split'?` (TM ${money(x.cashPart||0)} + CK ${money(x.bankPart||0)})`:''}`).join('');
  if(t.tipOut)info+=`<br>Tip ngoài <b>+${money(t.tipOut)}</b> (tiền mặt)`;
  if(t.tip)info+=`<br>Tip <b>+${money(t.tip)}</b>`;
  if(t.bonus)info+=`<br>Thưởng <b>+${money(t.bonus)}</b>`;
@@ -251,15 +286,18 @@ function doEnd(exp){const a=$('sAct').value;if(a==='')return alert('Hãy nhập 
 
 /* ===== Tổng quan tiền khách trả theo hình thức: tiền mặt / chuyển khoản / thẻ-ví ===== */
 function payOverview(done){
- const m={cash:{n:0,v:0},bank:{n:0,v:0},card:{n:0,v:0}};
+ const m={cash:{n:0,v:0},bank:{n:0,v:0},card:{n:0,v:0}};let sp=0;
+ /* x: cuốc hoặc đơn con. Đơn nửa tiền mặt/CK được chia vào hai dòng tiền mặt và chuyển khoản */
+ const add=(x,tip)=>{
+  if(x.pay==='split'){const q=splitOf(x,tip);m.cash.v+=q.c-q.ch;m.bank.v+=q.b;sp++}
+  else if(m[x.pay]){m[x.pay].n++;m[x.pay].v+=x.due+(tip||0)}};
  done.forEach(t=>{
-  if(t.subs)t.subs.forEach(x=>{m[x.pay].n++;m[x.pay].v+=x.due});
-  else{m[t.pay].n++;m[t.pay].v+=t.due+(t.tip||0)}
+  if(t.subs)t.subs.forEach(x=>add(x,0));else add(t,t.tip||0);
   if(t.tipOut)m.cash.v+=t.tipOut; // tip ngoài là tiền mặt
  });
- const tot=m.cash.v+m.bank.v+m.card.v;
- return `<div class="card"><b>Tiền khách trả theo hình thức</b>`+Object.keys(PAYS).map(k=>`<div class="row sp" style="margin-top:10px"><span>${PAYS[k]} <span class="mu">· ${m[k].n} đơn</span></span><b>${money(m[k].v)}</b></div><div class="bar" style="height:8px;margin-top:4px"><i style="width:${tot?m[k].v/tot*100:0}%"></i></div>`).join('')+
- `<div class="row sp" style="margin-top:10px"><span class="mu">Tổng</span><b>${money(tot)}</b></div><div class="mu" style="margin-top:4px;font-size:12px">Gồm tiền phải thu + tip của khách. Tip ngoài tính vào tiền mặt.</div></div>`}
+ const tot=m.cash.v+m.bank.v+m.card.v,K3=['cash','bank','card'];
+ return `<div class="card"><b>Tiền khách trả theo hình thức</b>`+K3.map(k=>`<div class="row sp" style="margin-top:10px"><span>${PAYS[k]} <span class="mu">· ${m[k].n} đơn</span></span><b>${money(m[k].v)}</b></div><div class="bar" style="height:8px;margin-top:4px"><i style="width:${tot?m[k].v/tot*100:0}%"></i></div>`).join('')+
+ `<div class="row sp" style="margin-top:10px"><span class="mu">Tổng</span><b>${money(tot)}</b></div>${sp?`<div class="mu" style="margin-top:4px;font-size:12px">Có ${sp} đơn nửa tiền mặt, nửa CK: đã chia vào hai dòng tiền mặt và chuyển khoản.</div>`:''}<div class="mu" style="margin-top:4px;font-size:12px">Gồm tiền phải thu + tip của khách. Tip ngoài tính vào tiền mặt.</div></div>`}
 
 /* ================= TRANG CHỦ ================= */
 function viewHome(){
@@ -342,7 +380,7 @@ function viewStats(){
  ${payOverview(done)}
  <div class="card mu" style="font-size:13px;line-height:1.6"><b style="color:var(--tx)">Cách tính</b><br>
  • <b>Doanh thu</b> = cộng “tiền phải thu” của các cuốc hoàn thành (cuốc ngoài: số tiền khách trả) = ${money(rev)}<br>
- • <b>Tổng phí</b> = cộng (phải thu − ròng) của cuốc Bike/Food/Express = ${money(fee)}. Với Food/Express, tiền phải thu có thể gồm cả tiền món ứng cho quán nên số này có thể lớn hơn phí thật của Grab.<br>
+ • <b>Tổng phí</b> = cộng (phải thu − ròng) của cuốc Bike/Food/Express = ${money(fee)} (có thể nhỏ hơn hoặc âm khi cuốc có voucher, vì Grab bù). Với Food/Mart/Express, tiền phải thu có thể gồm cả tiền món ứng cho quán nên số này có thể lớn hơn phí thật của Grab.<br>
  • <b>Thực nhận</b> = tiền ròng ${money(net-bon-tip-tipO)} + thưởng ${money(bon)} + tip ${money(tip)} + tip ngoài ${money(tipO)} = ${money(net)}<br>
  • <b>Lợi nhuận</b> = thực nhận − chi phí = ${money(net)} − ${money(ex)} = ${money(net-ex)}<br>
  • <b>Thu nhập TB/cuốc</b> = thực nhận ÷ số cuốc hoàn thành<br>
@@ -360,7 +398,7 @@ function viewSet(){
  return `<div class="card"><label style="margin-top:0">Mục tiêu thu nhập mỗi ngày (đ)</label><input type="number" inputmode="numeric" value="${S.set.goal}" onchange="S.set.goal=num(this.value);save();toast('Đã lưu')">
  <div class="sw"><span>Cuốc tiền mặt/chuyển khoản: trừ tiền phải thu khỏi ví tín dụng</span><input type="checkbox" ${S.set.cashFee?'checked':''} onchange="S.set.cashFee=this.checked;save()"></div>
  <div class="sw"><span>Cuốc tiền mặt/chuyển khoản: cộng tiền ròng vào ví tài xế</span><input type="checkbox" ${S.set.cashNet?'checked':''} onchange="S.set.cashNet=this.checked;save()"></div>
- <div class="mu">Thay đổi chỉ áp dụng cho cuốc lưu hoặc đổi trạng thái từ bây giờ. Cuốc cũ giữ nguyên cách đã tính.</div></div>
+ <div class="mu">Nếu ví tín dụng không đủ, phần thiếu tự trích từ ví tài xế. Thay đổi chỉ áp dụng cho cuốc lưu hoặc đổi trạng thái từ bây giờ. Cuốc cũ giữ nguyên cách đã tính.</div></div>
  <div class="card"><b>Giao diện</b><div class="seg" style="margin-top:8px">${[['','Theo máy'],['light','Sáng'],['dark','Tối']].map(([k,l])=>`<button class="${S.set.theme===k?'on':''}" onclick="S.set.theme='${k}';save();theme();render()">${l}</button>`).join('')}</div></div>
  <div class="card"><b>Dữ liệu</b><button class="d" style="width:100%;margin-top:10px" onclick="delAllTrips()">Xoá toàn bộ lịch sử cuốc</button>
  <button class="d" style="width:100%;margin-top:10px" onclick="wipe()">Xoá toàn bộ dữ liệu</button></div>`}
@@ -387,3 +425,5 @@ theme();render();
 </script>
 </body>
 </html>
+
+</body></html>
