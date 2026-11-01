@@ -177,6 +177,7 @@ function renderSubs(){$('fSubs').innerHTML=f.subs.map((x,i)=>`<div class="card" 
  <label>Tiền phải thu</label><input type="number" inputmode="numeric" min="0" value="${x.due||''}" oninput="subSet(${i},'due',this.value)">
  <label>Thanh toán</label><div class="seg">${Object.entries(PAYS).map(([v,l])=>`<button type="button" class="${x.pay===v?'on':''}" onclick="subPay(${i},'${v}')">${l}</button>`).join('')}</div>
  ${x.pay==='cash'?`<label>Khách đưa (để trống nếu đủ)</label><input type="number" inputmode="numeric" min="0" value="${x.given||''}" oninput="subSet(${i},'given',this.value)"><div class="mu" id="sc${i}"></div>`:''}
+ ${x.pay==='bank'?`<label>Khách chuyển khoản (để trống nếu đúng số tiền)</label><input type="number" inputmode="numeric" min="0" value="${x.given||''}" oninput="subSet(${i},'given',this.value)"><div class="mu" id="sc${i}"></div>`:''}
  ${x.pay==='split'?`<label>Khách đưa tiền mặt</label><input type="number" inputmode="numeric" min="0" value="${x.cashPart||''}" oninput="subSet(${i},'cashPart',this.value)"><label>Khách chuyển khoản</label><input type="number" inputmode="numeric" min="0" value="${x.bankPart||''}" oninput="subSet(${i},'bankPart',this.value)"><div class="mu" id="sc${i}"></div>`:''}</div>`).join('');fview()}
 function subSet(i,k,v){f.subs[i][k]=num(v);fview()}
 function subKind(i,v){f.subs[i].kind=v;renderSubs()}
@@ -205,7 +206,7 @@ function fview(src){
  const due=ng?(sp?num($('fSC').value)+num($('fSB').value):num($('fAmt').value)):isG?(f.subs||[]).reduce((a,x)=>a+num(x.due),0):num($('fDue').value), net=ng?due:num($('fNet').value), g=isG?0:num($('fGiven').value);
  f.dueV=due;f.netV=net;f.givenV=g;f.cashV=num($('fSC').value);f.bankV=num($('fSB').value);f.bonusV=ng?0:num($('fBonus').value);f.tipOutV=ng?0:num($('fTipOut').value);
  /* Chuyển khoản: tip tự tính = khách chuyển − phải thu (nếu chuyển dư) */
- f.tipV=(ng||isG)?0:(f.pay==='bank'?Math.max(0,g-due):num($('fTip').value));
+ f.tipV=ng?0:isG?(f.subs||[]).reduce((a,x)=>a+(x.pay==='bank'?Math.max(0,num(x.given)-num(x.due)):0),0):(f.pay==='bank'?Math.max(0,g-due):num($('fTip').value));
  let h='';
  if(!ng){const fee=due-net;
   h+=feeInfo(due,net,f.type==='bike');
@@ -214,9 +215,9 @@ function fview(src){
   if(f.pay==='bank')h+='<br><span class="mu">Khách chuyển khoản, không có tiền mặt vào két.</span>';
  }else h='Thực nhận: <b>'+money(due)+'</b>';
  if(sp){const c=f.cashV,b=f.bankV,ch=Math.max(0,c+b-due-f.tipV);h+='<br>Tiền mặt: <b>'+money(c)+'</b> · Chuyển khoản: <b>'+money(b)+'</b>'+(ch?'<br>Tiền trả lại khách: <b>'+money(ch)+'</b>':'')+(c+b<due+f.tipV?'<br><span class="neg">Khách trả chưa đủ</span>':'')}
- if(isG){h=groupPrev(due,net);(f.subs||[]).forEach((x,i)=>{const e=$('sc'+i);if(e)e.textContent=x.pay==='cash'&&x.given?'Trả lại: '+money(x.given-x.due):(x.pay==='split'&&splitOf(x).ch?'Trả lại: '+money(splitOf(x).ch):'')})}
+ if(isG){h=groupPrev(due,net);(f.subs||[]).forEach((x,i)=>{const e=$('sc'+i);if(e)e.textContent=x.pay==='bank'?(num(x.given)>num(x.due)?'Tip: +'+money(num(x.given)-num(x.due)):''):x.pay==='cash'&&x.given?'Trả lại: '+money(x.given-x.due):(x.pay==='split'&&splitOf(x).ch?'Trả lại: '+money(splitOf(x).ch):'')})}
  if(f.tipOutV)h+='<br>Tip ngoài: <b>+'+money(f.tipOutV)+'</b> (tiền mặt, vào két)';
- if(f.tipV)h+='<br>Tip: <b>+'+money(f.tipV)+'</b>'+(f.pay==='bank'?' (khách chuyển dư, tự tính)':'');
+ if(f.tipV)h+='<br>Tip: <b>+'+money(f.tipV)+'</b>'+(f.pay==='bank'||isG?' (khách chuyển dư, tự tính)':'');
  if(f.bonusV)h+='<br>Thưởng: <b>+'+money(f.bonusV)+'</b> vào ví tài xế';
  if(f.status==='done'&&S.set.cashFee&&!ng){const need=isG?f.subs.filter(x=>x.pay!=='card').reduce((a,x)=>a+num(x.due),0):(f.pay!=='card'?due:0),av=Math.max(0,S.credit.bal-(f.applied?f.applied.c:0));
   if(need>av)h+='<br><span class="warn">Ví tín dụng thiếu '+money(need-av)+', sẽ trích từ ví tài xế.</span>'}
@@ -228,12 +229,13 @@ function saveTrip(id){
  if(ng?!due:(!due&&!net))return alert('Hãy nhập số tiền.');
  if(isG){if(!f.subs.length)return alert('Cần ít nhất 1 đơn.');
   if(f.subs.some(x=>x.pay==='cash'&&num(x.given)&&num(x.given)<num(x.due)))return alert('Có đơn tiền mặt khách đưa chưa đủ.');
+  if(f.subs.some(x=>x.pay==='bank'&&num(x.given)&&num(x.given)<num(x.due)))return alert('Có đơn chuyển khoản khách chuyển chưa đủ.');
   if(f.subs.some(x=>x.pay==='split'&&num(x.cashPart)+num(x.bankPart)<num(x.due)))return alert('Có đơn nửa tiền mặt nửa CK khách trả chưa đủ.')}
  if(sp&&f.cashV+f.bankV<due+f.tipV)return alert('Khách trả (tiền mặt + chuyển khoản) chưa đủ tiền phải thu + tip.');
  if(!ng&&!isG&&f.pay==='cash'&&g&&g<due+f.tipV)return alert('Khách đưa chưa đủ tiền phải thu + tip.');
  if(!ng&&!isG&&f.pay==='bank'&&g&&g<due)return alert('Khách chuyển chưa đủ tiền phải thu.');
  const old=S.trips.find(t=>t.id===id);
- const t={id:old?old.id:Date.now(),no:old?old.no:++S.seq,type:f.type,pay:isG?'mixed':f.pay,subs:isG?f.subs.map(x=>({kind:x.kind||f.type,due:num(x.due),pay:x.pay,given:x.pay==='cash'?num(x.given):0,cashPart:x.pay==='split'?num(x.cashPart):0,bankPart:x.pay==='split'?num(x.bankPart):0})):undefined,status:f.status,due,net,given:(!ng&&(f.pay==='cash'||f.pay==='bank'))?g:0,cashPart:sp?f.cashV:(ng&&f.pay==='split'?f.cashV:0),bankPart:f.pay==='split'?f.bankV:0,tip:f.tipV,
+ const t={id:old?old.id:Date.now(),no:old?old.no:++S.seq,type:f.type,pay:isG?'mixed':f.pay,subs:isG?f.subs.map(x=>({kind:x.kind||f.type,due:num(x.due),pay:x.pay,given:(x.pay==='cash'||x.pay==='bank')?num(x.given):0,cashPart:x.pay==='split'?num(x.cashPart):0,bankPart:x.pay==='split'?num(x.bankPart):0})):undefined,status:f.status,due,net,given:(!ng&&(f.pay==='cash'||f.pay==='bank'))?g:0,cashPart:sp?f.cashV:(ng&&f.pay==='split'?f.cashV:0),bankPart:f.pay==='split'?f.bankV:0,tip:f.tipV,
   bonus:ng?0:f.bonusV,tipOut:ng?0:f.tipOutV,note:$('fNote').value.trim(),ts:old?old.ts:Date.now(),applied:old?old.applied:null};
  creditOk(t,old,()=>{revert(t,'Hoàn tác');applyTrip(t);
   const i=S.trips.findIndex(x=>x.id===t.id);if(i>=0)S.trips[i]=t;else S.trips.push(t);
@@ -257,7 +259,7 @@ function tripCard(t,btn=true){
   feeInfo(t.due,t.net,t.type==='bike')+
   (t.pay==='cash'&&t.given?` · Trả lại ${money(t.given-t.due-(t.tip||0))}`:'');
  if(t.pay==='split')info+=`<br>Tiền mặt <b>${money(t.cashPart||0)}</b> + Chuyển khoản <b>${money(t.bankPart||0)}</b>`+(splitOf(t,t.tip).ch?` · Trả lại ${money(splitOf(t,t.tip).ch)}`:'');
- if(t.subs)info+=t.subs.map((x,i)=>`<br>• Đơn ${i+1} ${TYPES[x.kind||t.type]}: <b>${money(x.due)}</b> · ${PAYS[x.pay]}${x.pay==='cash'&&x.given?` (trả lại ${money(x.given-x.due)})`:''}${x.pay==='split'?` (TM ${money(x.cashPart||0)} + CK ${money(x.bankPart||0)})`:''}`).join('');
+ if(t.subs)info+=t.subs.map((x,i)=>`<br>• Đơn ${i+1} ${TYPES[x.kind||t.type]}: <b>${money(x.due)}</b> · ${PAYS[x.pay]}${x.pay==='cash'&&x.given?` (trả lại ${money(x.given-x.due)})`:''}${x.pay==='split'?` (TM ${money(x.cashPart||0)} + CK ${money(x.bankPart||0)})`:''}${x.pay==='bank'&&x.given>x.due?` (CK ${money(x.given)}, tip +${money(x.given-x.due)})`:''}`).join('');
  if(t.tipOut)info+=`<br>Tip ngoài <b>+${money(t.tipOut)}</b> (tiền mặt)`;
  if(t.tip)info+=`<br>Tip <b>+${money(t.tip)}</b>`;
  if(t.bonus)info+=`<br>Thưởng <b>+${money(t.bonus)}</b>`;
@@ -292,7 +294,7 @@ function payOverview(done){
   if(x.pay==='split'){const q=splitOf(x,tip);m.cash.v+=q.c-q.ch;m.bank.v+=q.b;sp++}
   else if(m[x.pay]){m[x.pay].n++;m[x.pay].v+=x.due+(tip||0)}};
  done.forEach(t=>{
-  if(t.subs)t.subs.forEach(x=>add(x,0));else add(t,t.tip||0);
+  if(t.subs)t.subs.forEach(x=>add(x,x.pay==='bank'?Math.max(0,(x.given||0)-x.due):0));else add(t,t.tip||0);
   if(t.tipOut)m.cash.v+=t.tipOut; // tip ngoài là tiền mặt
  });
  const tot=m.cash.v+m.bank.v+m.card.v,K3=['cash','bank','card'];
