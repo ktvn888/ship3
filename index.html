@@ -1,10 +1,9 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Sổ tay tài xế</title>
+<title>Sổ tay tài xế Pro</title>
 <style>
 /* ===== Màu sắc (sáng/tối) ===== */
 :root{--bg:#eef2f0;--card:#fff;--tx:#14201a;--mu:#62736a;--ln:#d9e2dd;--ac:#00985a;--ac2:#d9f3e6;--wa:#d97706;--er:#d33a3a;--ok:#0b8a4f;
@@ -55,9 +54,35 @@ nav span{display:block;font-size:20px}
 .dc input{min-height:38px;padding:0 2px;text-align:center;flex:1;min-width:0}
 .dc button{padding:0;width:34px;flex:none}
 summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:600;color:var(--ac)}
+
+:root{--bg:#f1f5f2;--card:#fff;--tx:#14271f;--mu:#52665c;--ln:#dce7e0;--ac:#00784b;--ac2:#e0f3e7}
+body{font-family:system-ui,sans-serif;padding-bottom:155px}
+main,.app-header{max-width:680px;margin:auto;padding-inline:16px}
+.app-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-block:19px 4px}
+.app-title{display:flex;align-items:center;gap:10px}
+.app-title h1{font-size:clamp(18px,5vw,23px);margin:0;letter-spacing:-.04em}
+.brand{background:#093d2d;color:#9dffcc;display:grid;place-items:center;width:37px;height:37px;border-radius:12px}
+.card{border-radius:19px;padding:16px}
+.shift-card{background:linear-gradient(120deg,#07382b,#106044);color:#fff;border:0;padding:19px}
+.shift-card .mu{color:#bddecd}.shift-card .p{background:#a0f4bd;color:#083929}
+.shift-card .d{color:#fff;border-color:#c4e5d3}
+.shift-money{font-size:clamp(29px,8vw,47px);letter-spacing:-.04em;font-weight:750}
+.shift-meta{display:flex;flex-wrap:wrap;gap:4px 15px;margin-bottom:12px}
+.dash-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 16px}
+.weekly h2{margin:0}.weekly .big{font-size:27px}
+.weekly .seg{margin:12px 0 10px}
+.weekly .seg button{display:grid;align-content:center;gap:2px;min-height:58px}
+.weekly .seg small{font-size:11px;font-weight:500}
+.kpis{margin:10px 0}.kpis .big{font-size:clamp(18px,5vw,26px);overflow-wrap:anywhere}
+.dash-bottom{margin-top:12px}
+nav{max-width:680px;margin:auto}
+nav button{padding-inline:4px}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.fab{right:max(16px,calc((100vw - 648px)/2))}
 </style>
 </head>
 <body>
+<header class="app-header"><div class="app-title"><span class="brand" aria-hidden="true">↗</span><h1>Sổ tay tài xế Pro</h1></div><span class="mu" id="appDate"></span></header>
 <main id="app"></main>
 <button class="p fab" id="fab" onclick="tripForm()">+ Thêm cuốc</button>
 <nav id="nav"></nav>
@@ -68,7 +93,7 @@ const TYPES={bike:'Grab Bike',food:'Grab Food',mart:'Grab Mart',express:'Grab Ex
 const PAYS={cash:'Tiền mặt',bank:'Chuyển khoản',split:'Nửa tiền mặt, nửa CK',card:'Thẻ/Ví điện tử'};
 const STAT={run:'Đang chạy',done:'Hoàn thành',cancel:'Huỷ'};
 const def=()=>({trips:[],exps:[],credit:{bal:0,log:[]},driver:{bal:0,log:[]},shift:null,shifts:[],counts:[],seq:0,
- set:{goal:1000000,bikeRate:20,cashFee:true,cashNet:true,keepAwake:false,theme:''}});
+ set:{goal:1000000,weekGoal:70,bikeRate:20,cashFee:true,cashNet:true,keepAwake:false,theme:''}});
 let S=load(),tab='home',wsel='credit',F={from:'',to:'',type:'',pay:'',range:'day'};
 function load(){try{const d=def(),x=JSON.parse(localStorage.getItem(K)||'{}');return{...d,...x,set:{...d.set,...(x.set||{})}}}catch(e){return def()}}
 function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){toast('Không lưu được dữ liệu!')}}
@@ -334,9 +359,24 @@ function shiftCalc(sh){
  const ce=ex.filter(e=>e.cash).reduce((a,e)=>a+e.amt,0),all=ex.reduce((a,e)=>a+e.amt,0);
  const net=tr.reduce((a,t)=>a+inc(t),0);
  return{n:tr.length,net,ci,co,ce,all,exp:sh.open+ci-co-ce,profit:net-all,expDen:den,cashTrips,withDen,hasOpenDen:!!denSum(sh.openDen)}}
-function startShift(){sheet(`<h2 style="margin-top:0">Bắt đầu ca</h2><label>Tiền mặt đầu ca</label><input id="sOpen" type="text" inputmode="numeric" class="mi">
- <details style="margin-top:8px"><summary>Đếm theo mệnh giá (tuỳ chọn, để đối soát cuối ca)</summary>${denHtml('open',{},()=>{const t=denSum(DV.open);if(t)$('sOpen').value=fmt(t)})}</details>
- <div class="row" style="margin-top:14px"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="S.shift={start:Date.now(),open:num($('sOpen').value),openDen:denSum(DV.open)?{...DV.open}:{}};save();closeSheet();render()">Bắt đầu</button></div>`);denTot('open')}
+function startShift(){
+ if(S.shift)return;
+ sheet(`<form id="sStartForm"><h2 style="margin-top:0">Bắt đầu ca</h2>
+ <label for="sOpen">Tiền mặt đầu ca (để trống nếu 0đ)</label><input id="sOpen" type="text" inputmode="numeric" class="mi" placeholder="0">
+ <details style="margin-top:8px"><summary>Đếm theo mệnh giá (tuỳ chọn, để đối soát cuối ca)</summary>${denHtml('open',{},()=>{$('sOpen').value=fmt(denSum(DV.open))})}</details>
+ <div class="row" style="margin-top:14px"><button type="button" class="f" id="sClose">Đóng</button><button type="submit" class="p f">Bắt đầu</button></div></form>`);
+ denTot('open');
+ $('sClose').addEventListener('click',closeSheet);
+ $('sStartForm').addEventListener('submit',event=>{
+  event.preventDefault();
+  if(S.shift)return;
+  const open=num($('sOpen').value);
+  const counted=denSum(DV.open);
+  if(counted&&counted!==open)return toast('Tiền đầu ca và tổng mệnh giá đang lệch.');
+  S.shift={start:Date.now(),open,openDen:{...DV.open}};
+  save();closeSheet();render();toast('Đã bắt đầu ca');
+ });
+}
 function endShift(){const c=shiftCalc(S.shift);
  sheet(`<h2 style="margin-top:0">Kết thúc ca</h2><div class="card">Số cuốc hoàn thành: <b>${c.n}</b><br>Tổng thực nhận: <b>${money(c.net)}</b><br>Chi phí: <b>${money(c.all)}</b><br>Lợi nhuận: <b class="${cls(c.profit)}">${money(c.profit)}</b><br><br>
  Đầu ca: ${money(S.shift.open)}<br>+ Tiền mặt thu: ${money(c.ci)}<br>− Trả lại khách: ${money(c.co)}<br>− Chi tiền mặt: ${money(c.ce)}<br>= Dự kiến cuối ca: <b>${money(c.exp)}</b></div>
@@ -402,20 +442,52 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 document.addEventListener('pointerdown',()=>{if(S.set.keepAwake&&!WL)wlOn(true)},{passive:true}); // lúc mở app chưa xin được thì thử lại khi chạm
 
 /* ================= TRANG CHỦ ================= */
+const WEEK_REWARDS={70:280000,110:500000,150:750000};
+function weekProgress(now=Date.now()){
+ const start=new Date(now);
+ start.setHours(0,0,0,0);
+ start.setDate(start.getDate()-(start.getDay()+6)%7);
+ const end=new Date(start);
+ end.setDate(end.getDate()+7);
+ const count=S.trips.filter(t=>{
+  if(t.status!=='done'||t.ts<+start||t.ts>=+end)return false;
+  if(t.subs?.length)return t.subs.some(order=>(order.kind||t.type)==='food');
+  return t.type==='bike'||t.type==='food';
+ }).length;
+ const goal=WEEK_REWARDS[S.set.weekGoal]?Number(S.set.weekGoal):70;
+ const days=Math.max(1,7-(new Date(now).getDay()+6)%7);
+ return {count,goal,remaining:Math.max(0,goal-count),days};
+}
+function weekCard(){
+ const {count,goal,remaining,days}=weekProgress();
+ return `<section class="card weekly" aria-labelledby="weekTitle">
+ <div class="row sp"><h2 id="weekTitle">Thưởng tuần</h2><span class="mu">Thứ 2 – Chủ nhật</span></div>
+ <div class="row sp"><b class="big">${count} / ${goal} cuốc</b><span class="${remaining?'mu':'pos'}">${remaining?'Còn '+remaining+' cuốc':'Đã chạm mốc'}</span></div>
+ <div class="bar" style="margin:6px 0"><i style="width:${Math.min(100,count/goal*100)}%"></i></div>
+ <div class="seg t3">${Object.entries(WEEK_REWARDS).map(([target,reward])=>`<button type="button" class="${goal===Number(target)?'on':''}" aria-pressed="${goal===Number(target)}" onclick="setWeekGoal(${target})"><b>${target} cuốc</b><small>${money(reward)}</small></button>`).join('')}</div>
+ <div class="mu">${remaining?`Cần trung bình <b>${Math.ceil(remaining/days)} cuốc/ngày</b> trong ${days} ngày còn lại, tính cả hôm nay.<br>`:''}Mốc ${goal} cuốc ước nhận <b>${money(WEEK_REWARDS[goal]*0.985)}</b> sau thuế 1,5%.</div>
+ <details><summary>Cách đếm cuốc</summary><div class="mu">Chỉ tính GrabBike và GrabFood đã hoàn thành. Mỗi nhóm có đơn GrabFood tính 1 cuốc. Đối chiếu số cuốc đủ điều kiện trong Grab Driver.</div></details>
+ </section>`;
+}
+function setWeekGoal(goal){S.set.weekGoal=goal;save();render()}
 function viewHome(){
  const today=dkey(Date.now()),tr=S.trips.filter(t=>dkey(t.ts)===today),done=tr.filter(t=>t.status==='done');
  const net=done.reduce((a,t)=>a+inc(t),0),ex=S.exps.filter(e=>dkey(e.ts)===today),exT=ex.reduce((a,e)=>a+e.amt,0),g=S.set.goal||0;
- let h=`<div class="grid"><div class="card"><div class="mu">Ví tín dụng</div><div class="big ${S.credit.bal<0?'neg':''}">${money(S.credit.bal)}</div></div>
- <div class="card"><div class="mu">Ví tài xế</div><div class="big">${money(S.driver.bal)}</div></div></div>
- <div class="card" style="margin-top:10px"><div class="row sp"><span>Mục tiêu hôm nay</span><b>${money(net)} / ${money(g)}</b></div>
- <div class="bar" style="margin:8px 0"><i style="width:${g?Math.min(100,net/g*100):0}%"></i></div><div class="mu">Chi phí hôm nay ${money(exT)} · Lợi nhuận <b class="${cls(net-exT)}">${money(net-exT)}</b></div></div>`;
- h+=`<button class="${S.set.keepAwake?'p':''}" style="width:100%;margin-top:10px" onclick="toggleAwake(${!S.set.keepAwake})">${S.set.keepAwake?'☀️ Đang giữ màn hình sáng · bấm để tắt':'Giữ màn hình luôn sáng'}</button>`;
- if(S.shift){const c=shiftCalc(S.shift);
-  h+=`<div class="card"><div class="row sp"><b>Ca đang chạy từ ${tm(S.shift.start)}</b><button class="s d" onclick="endShift()">Kết thúc ca</button></div>
-  <div class="mu" style="margin-top:6px">Đầu ca ${money(S.shift.open)} · Dự kiến cuối ca</div><div class="big">${money(c.exp)}</div></div>`;
- }else h+=`<button class="p" style="width:100%;margin-bottom:10px" onclick="startShift()">Bắt đầu ca</button>`;
+ const c=S.shift?shiftCalc(S.shift):null;
+ let h=`<section class="card shift-card">
+ <div class="row sp"><b>${c?'Ca đang chạy từ '+tm(S.shift.start):'Chưa mở ca'}</b>${c?'<button class="s d" onclick="endShift()">Kết thúc ca</button>':''}</div>
+ ${c?`<div class="mu" style="margin-top:9px">Tiền mặt dự kiến trong két</div><div class="shift-money">${money(c.exp)}</div>
+ <div class="shift-meta mu"><span>Đầu ca ${money(S.shift.open)}</span><span>${c.n} cuốc hoàn thành</span><span>Lãi ca ${money(c.profit)}</span></div>`:'<button class="p" style="width:100%;margin-top:12px" id="startShiftButton" type="button">Bắt đầu ca</button>'}
+ </section>
+ <div class="dash-actions"><button onclick="countSheet()">Đếm tiền mặt</button><button onclick="expForm()">+ Chi phí</button></div>
+ <section class="card"><div class="row sp"><b>Thu nhập hôm nay</b><span class="mu">${done.length} cuốc hoàn thành</span></div>
+ <div class="big">${money(net)}</div>
+ <div class="bar" style="margin:8px 0"><i style="width:${g?Math.min(100,net/g*100):0}%"></i></div>
+ <div class="mu">Mục tiêu ${money(g)} · Chi phí ${money(exT)} · Còn lại <b class="${cls(net-exT)}">${money(net-exT)}</b></div></section>
+ ${weekCard()}
+ <div class="grid kpis"><div class="card"><div class="mu">Ví tín dụng</div><div class="big ${S.credit.bal<0?'neg':''}">${money(S.credit.bal)}</div></div>
+ <div class="card"><div class="mu">Ví tài xế</div><div class="big">${money(S.driver.bal)}</div></div></div>`;
  h+=payOverview(done);
- h+=`<div class="row"><button class="f" onclick="expForm()">+ Chi phí</button><button class="f" onclick="countSheet()">Đếm tiền mặt</button></div>`;
  if(ex.length)h+=`<h2>Chi phí hôm nay</h2>`+ex.map(e=>`<div class="card row sp"><span>${esc(e.note||'Chi phí')} <span class="mu">${e.cash?'· tiền mặt':''}</span></span><span><b>${money(e.amt)}</b> <button class="s d" onclick="delExp(${e.id})">Xoá</button></span></div>`).join('');
  h+=`<h2>Cuốc hôm nay (${tr.length})</h2>`+(tr.length?tr.slice().reverse().map(t=>tripCard(t)).join(''):'<div class="card mu">Chưa có cuốc nào. Bấm “Thêm cuốc” để bắt đầu.</div>');
  return h}
@@ -505,6 +577,9 @@ function viewSet(){
  <div class="mu">Nếu ví tín dụng không đủ, phần thiếu tự trích từ ví tài xế. Thay đổi chỉ áp dụng cho cuốc lưu hoặc đổi trạng thái từ bây giờ. Cuốc cũ giữ nguyên cách đã tính.</div></div>
  <div class="card"><div class="sw"><span><b>Giữ màn hình luôn sáng</b><br><span class="mu">Màn hình không tự tắt khi app đang mở. Tốn pin hơn.</span></span><input type="checkbox" ${S.set.keepAwake?'checked':''} onchange="toggleAwake(this.checked)"></div></div>
  <div class="card"><b>Giao diện</b><div class="seg" style="margin-top:8px">${[['','Theo máy'],['light','Sáng'],['dark','Tối']].map(([k,l])=>`<button class="${S.set.theme===k?'on':''}" onclick="S.set.theme='${k}';save();theme();render()">${l}</button>`).join('')}</div></div>
+ <div class="card"><b>Sao lưu dữ liệu</b>
+ <div class="dash-actions dash-bottom"><button onclick="backup()">Tải bản sao JSON</button><button onclick="exportCSV()">Xuất CSV</button></div>
+ <label for="restoreInput">Khôi phục từ tệp JSON</label><input id="restoreInput" type="file" accept=".json,application/json" onchange="restore(this.files[0]);this.value=''"></div>
  <div class="card"><b>Dữ liệu</b><button class="d" style="width:100%;margin-top:10px" onclick="delAllTrips()">Xoá toàn bộ lịch sử cuốc</button>
  <button class="d" style="width:100%;margin-top:10px" onclick="wipe()">Xoá toàn bộ dữ liệu</button></div>`}
 function dl(name,txt,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
@@ -523,7 +598,10 @@ function wipe(){ask('Xoá TOÀN BỘ dữ liệu (cuốc, chi phí, ví, ca)? Kh
 function theme(){const t=S.set.theme;if(t)document.documentElement.dataset.theme=t;else delete document.documentElement.dataset.theme}
 function render(){
  const V={home:viewHome,wallet:viewWallet,stats:viewStats,set:viewSet};
- $('app').innerHTML=V[tab]();const cw=document.querySelector('.cw');if(cw)cw.scrollLeft=cw.scrollWidth; // cuộn tới ngày mới nhất
+ $('appDate').textContent=new Date().toLocaleDateString('vi-VN',{day:'numeric',month:'numeric'});
+ $('app').innerHTML=V[tab]();
+ $('startShiftButton')?.addEventListener('click',startShift);
+ const cw=document.querySelector('.cw');if(cw)cw.scrollLeft=cw.scrollWidth; // cuộn tới ngày mới nhất
  $('fab').style.display=(tab==='home'||tab==='stats')?'':'none';
  $('nav').innerHTML=[['home','🏍️','Hôm nay'],['wallet','👛','Ví'],['stats','📊','Thống kê'],['set','⚙️','Cài đặt']].map(([k,i,l])=>`<button class="${tab===k?'on':''}" onclick="tab='${k}';render();scrollTo(0,0)"><span>${i}</span>${l}</button>`).join('')}
 theme();render();
@@ -531,5 +609,3 @@ if(S.set.keepAwake)wlOn(true);
 </script>
 </body>
 </html>
-
-</body></html>
