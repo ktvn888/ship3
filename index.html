@@ -79,12 +79,21 @@ nav{max-width:680px;margin:auto}
 nav button{padding-inline:4px}
 button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
 .fab{right:max(16px,calc((100vw - 648px)/2))}
+
+.icon-defs{position:absolute;pointer-events:none}
+.ui-icon{width:1.2em;height:1.2em;vertical-align:-.24em;flex:none}
+.brand .ui-icon{width:21px;height:21px}
+.app-profile{display:flex;align-items:center;gap:8px;flex:none}
+.driver-avatar{display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--ln);border-radius:50%;color:var(--ac);background:var(--ac2);font-size:15px;font-weight:750}
+nav .ui-icon{display:block;width:22px;height:22px;margin:0 auto 3px}
+.weekly h2 .ui-icon{color:var(--ac)}
 </style>
 </head>
 <body>
-<header class="app-header"><div class="app-title"><span class="brand" aria-hidden="true">↗</span><h1>Sổ tay tài xế Pro</h1></div><span class="mu" id="appDate"></span></header>
+<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" class="icon-defs" aria-hidden="true"><symbol id="icon-route" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><path d="M8 6h8a4 4 0 0 1 0 8H8a2 2 0 0 0 0 4h8"/></symbol><symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10H3zM9 20v-6h6v6"/></symbol><symbol id="icon-wallet" viewBox="0 0 24 24"><path d="M3 7h16a2 2 0 0 1 2 2v10H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2l13-2"/><path d="M21 12h-5a2 2 0 0 0 0 4h5"/></symbol><symbol id="icon-stats" viewBox="0 0 24 24"><path d="M4 4v16h16M9 15v-3m5 3V8m5 7V5"/></symbol><symbol id="icon-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--card)"/><circle cx="15" cy="12" r="2" fill="var(--card)"/><circle cx="9" cy="17" r="2" fill="var(--card)"/></symbol><symbol id="icon-cash" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></symbol><symbol id="icon-expense" viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6m-6 4h6"/></symbol><symbol id="icon-trophy" viewBox="0 0 24 24"><path d="M8 3h8v6a4 4 0 0 1-8 0zM8 5H4v3a3 3 0 0 0 4 3m8-6h4v3a3 3 0 0 1-4 3m-4 2v7m-4 0h8"/></symbol><symbol id="icon-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></symbol><symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol></svg>
+<header class="app-header"><div class="app-title"><span class="brand" aria-hidden="true"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-route"/></svg></span><h1>Sổ tay tài xế Pro</h1></div><div class="app-profile"><span class="mu" id="appDate"></span><span class="driver-avatar" aria-label="Trung" role="img">T</span></div></header>
 <main id="app"></main>
-<button class="p fab" id="fab" onclick="tripForm()">+ Thêm cuốc</button>
+<button class="p fab" id="fab" onclick="tripForm()"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-plus"/></svg> Thêm cuốc</button>
 <nav id="nav"></nav>
 <script>
 /* ================= DỮ LIỆU ================= */
@@ -118,6 +127,19 @@ function fmtInput(el){
  try{el.setSelectionRange(i,i)}catch(_){}}
 document.addEventListener('input',e=>{if(e.target.classList&&e.target.classList.contains('mi'))fmtInput(e.target)},true); // capture: chạy trước các oninput khác
 const dkey=ts=>new Date(ts).toLocaleDateString('sv-SE');
+const tripTime=ts=>new Date(ts).toTimeString().slice(0,5);
+function tripDateOffset(days){
+ const date=new Date();
+ date.setDate(date.getDate()+days);
+ $('fDate').value=dkey(date);
+}
+function readTripTimestamp(){
+ const date=$('fDate').value,time=$('fTime').value;
+ if(!date||!time)return null;
+ const candidate=new Date(date+'T'+time);
+ if(!Number.isFinite(+candidate)||dkey(candidate)!==date||tripTime(candidate)!==time)return null;
+ return date===dkey(f.ts)&&time===tripTime(f.ts)?f.ts:+candidate;
+}
 const tm=ts=>new Date(ts).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
 const dt=ts=>new Date(ts).toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
 const short=v=>v>=1e6?(v/1e6).toFixed(2).replace(/\.?0+$/,'').replace('.',',')+'tr':Math.round(v/1000)+'k';
@@ -208,6 +230,11 @@ function tripForm(id){
  f.subs=(old&&old.subs)?old.subs.map(x=>({...x})):[{due:0,pay:'cash',given:0},{due:0,pay:'card',given:0}];
  const seg=(k,o)=>`<div class="seg" data-k="${k}">`+Object.entries(o).map(([v,l])=>`<button type="button" data-v="${v}" class="${f[k]===v?'on':''}">${l}</button>`).join('')+'</div>';
  sheet(`<h2 style="margin-top:0">${old?'Sửa cuốc':'Thêm cuốc'}</h2>
+ <div class="row">
+ <div style="flex:1.25"><label for="fDate">Ngày chạy</label><input id="fDate" type="date" value="${dkey(f.ts)}" max="${dkey(Date.now())}"></div>
+ <div style="flex:1"><label for="fTime">Giờ chạy</label><input id="fTime" type="time" value="${tripTime(f.ts)}"></div>
+ </div>
+ <div class="chips"><button type="button" onclick="tripDateOffset(0)">Hôm nay</button><button type="button" onclick="tripDateOffset(-1)">Hôm qua</button></div>
  <label>Loại cuốc</label>${seg('type',TYPES)}
  <div id="fGrpW"><label>Kiểu cuốc (Food/Mart)</label>${seg('grp',{0:'Đơn lẻ',1:'Nhóm đơn'})}</div>
  <div id="fSubsW"><label>Các đơn trong nhóm</label><div id="fSubs"></div><button type="button" class="f" style="width:100%;margin-top:8px" onclick="subAdd()">+ Thêm đơn</button></div>
@@ -302,6 +329,9 @@ function fview(src){
  $('fPrev').innerHTML=h;
 }
 function saveTrip(id){
+ const ts=readTripTimestamp();
+ if(ts===null)return toast('Anh chọn ngày và giờ chạy hợp lệ.');
+ if(ts>Date.now())return toast('Ngày giờ chạy phải từ hiện tại trở về trước.');
  const ng=f.type==='ngoai',isG=f.isG,due=f.dueV,net=f.netV,g=f.givenV,sp=f.pay==='split'&&!isG;
  /* Cuốc ngoài cần số tiền; cuốc app có thể có phải thu = 0 (voucher) và ròng bất kỳ, ròng được phép lớn hơn phải thu */
  if(ng?!due:(!due&&!net))return alert('Hãy nhập số tiền.');
@@ -314,10 +344,23 @@ function saveTrip(id){
  if(!ng&&!isG&&f.pay==='bank'&&g&&g<due)return alert('Khách chuyển chưa đủ tiền phải thu.');
  const old=S.trips.find(t=>t.id===id);
  const t={id:old?old.id:Date.now(),no:old?old.no:++S.seq,type:f.type,pay:isG?'mixed':f.pay,subs:isG?f.subs.map(x=>({kind:x.kind||f.type,due:num(x.due),pay:x.pay,given:(x.pay==='cash'||x.pay==='bank')?num(x.given):0,cashPart:x.pay==='split'?num(x.cashPart):0,bankPart:x.pay==='split'?num(x.bankPart):0})):undefined,status:f.status,due,net,given:(!ng&&(f.pay==='cash'||f.pay==='bank'))?g:0,cashPart:sp?f.cashV:(ng&&f.pay==='split'?f.cashV:0),bankPart:f.pay==='split'?f.bankV:0,tip:f.tipV,
-  bonus:ng?0:f.bonusV,tipOut:ng?0:f.tipOutV,denIn:($('fDen').style.display!=='none'&&denSum(DV['in']))?{...DV['in']}:undefined,denOut:($('fDen').style.display!=='none'&&denSum(DV.out))?{...DV.out}:undefined,note:$('fNote').value.trim(),ts:old?old.ts:Date.now(),applied:old?old.applied:null};
- creditOk(t,old,()=>{revert(t,'Hoàn tác');applyTrip(t);
+  bonus:ng?0:f.bonusV,tipOut:ng?0:f.tipOutV,denIn:($('fDen').style.display!=='none'&&denSum(DV['in']))?{...DV['in']}:undefined,denOut:($('fDen').style.display!=='none'&&denSum(DV.out))?{...DV.out}:undefined,note:$('fNote').value.trim(),ts,applied:old?old.applied:null};
+ const commit=()=>{
   const i=S.trips.findIndex(x=>x.id===t.id);if(i>=0)S.trips[i]=t;else S.trips.push(t);
-  save();closeSheet();render();toast('Đã lưu cuốc'+(lastShort?'. Ví tín dụng thiếu '+money(lastShort)+', đã trích từ ví tài xế':''))})}
+  const day=dkey(ts);
+  if(old?dkey(old.ts)!==day:day!==dkey(Date.now())){
+   tab='stats';F={from:day,to:day,type:'',pay:'',range:'day'};
+  }
+  save();closeSheet();render();toast('Đã lưu cuốc'+(lastShort?'. Ví tín dụng thiếu '+money(lastShort)+', đã trích từ ví tài xế':''));
+ };
+ if(old){
+  const before=fx(old),after=fx(t);
+  if(before.c===after.c&&before.d===after.d&&(old.bonus||0)===(t.bonus||0)&&(old.tip||0)===(t.tip||0)&&old.pay===t.pay){
+   lastShort=0;commit();return;
+  }
+ }
+ creditOk(t,old,()=>{revert(t,'Hoàn tác');applyTrip(t);commit()});
+}
 function setStatus(id,st){
  const t=S.trips.find(x=>x.id===id);if(!t||t.status===st)return;
  const n={...t,status:st};creditOk(n,t,()=>{revert(t,'Hoàn tác');t.status=st;applyTrip(t);save();render();if(lastShort)toast('Ví tín dụng thiếu '+money(lastShort)+', đã trích từ ví tài xế')})}
@@ -461,7 +504,7 @@ function weekProgress(now=Date.now()){
 function weekCard(){
  const {count,goal,remaining,days}=weekProgress();
  return `<section class="card weekly" aria-labelledby="weekTitle">
- <div class="row sp"><h2 id="weekTitle">Thưởng tuần</h2><span class="mu">Thứ 2 – Chủ nhật</span></div>
+ <div class="row sp"><h2 id="weekTitle"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-trophy"/></svg> Thưởng tuần</h2><span class="mu">Thứ 2 – Chủ nhật</span></div>
  <div class="row sp"><b class="big">${count} / ${goal} cuốc</b><span class="${remaining?'mu':'pos'}">${remaining?'Còn '+remaining+' cuốc':'Đã chạm mốc'}</span></div>
  <div class="bar" style="margin:6px 0"><i style="width:${Math.min(100,count/goal*100)}%"></i></div>
  <div class="seg t3">${Object.entries(WEEK_REWARDS).map(([target,reward])=>`<button type="button" class="${goal===Number(target)?'on':''}" aria-pressed="${goal===Number(target)}" onclick="setWeekGoal(${target})"><b>${target} cuốc</b><small>${money(reward)}</small></button>`).join('')}</div>
@@ -477,9 +520,9 @@ function viewHome(){
  let h=`<section class="card shift-card">
  <div class="row sp"><b>${c?'Ca đang chạy từ '+tm(S.shift.start):'Chưa mở ca'}</b>${c?'<button class="s d" onclick="endShift()">Kết thúc ca</button>':''}</div>
  ${c?`<div class="mu" style="margin-top:9px">Tiền mặt dự kiến trong két</div><div class="shift-money">${money(c.exp)}</div>
- <div class="shift-meta mu"><span>Đầu ca ${money(S.shift.open)}</span><span>${c.n} cuốc hoàn thành</span><span>Lãi ca ${money(c.profit)}</span></div>`:'<button class="p" style="width:100%;margin-top:12px" id="startShiftButton" type="button">Bắt đầu ca</button>'}
+ <div class="shift-meta mu"><span>Đầu ca ${money(S.shift.open)}</span><span>${c.n} cuốc hoàn thành</span><span>Lãi ca ${money(c.profit)}</span></div>`:'<button class="p" style="width:100%;margin-top:12px" id="startShiftButton" type="button"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-play"/></svg> Bắt đầu ca</button>'}
  </section>
- <div class="dash-actions"><button onclick="countSheet()">Đếm tiền mặt</button><button onclick="expForm()">+ Chi phí</button></div>
+ <div class="dash-actions"><button onclick="countSheet()"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-cash"/></svg> Đếm tiền mặt</button><button onclick="expForm()"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-expense"/></svg> Chi phí</button></div>
  <section class="card"><div class="row sp"><b>Thu nhập hôm nay</b><span class="mu">${done.length} cuốc hoàn thành</span></div>
  <div class="big">${money(net)}</div>
  <div class="bar" style="margin:8px 0"><i style="width:${g?Math.min(100,net/g*100):0}%"></i></div>
@@ -489,7 +532,7 @@ function viewHome(){
  <div class="card"><div class="mu">Ví tài xế</div><div class="big">${money(S.driver.bal)}</div></div></div>`;
  h+=payOverview(done);
  if(ex.length)h+=`<h2>Chi phí hôm nay</h2>`+ex.map(e=>`<div class="card row sp"><span>${esc(e.note||'Chi phí')} <span class="mu">${e.cash?'· tiền mặt':''}</span></span><span><b>${money(e.amt)}</b> <button class="s d" onclick="delExp(${e.id})">Xoá</button></span></div>`).join('');
- h+=`<h2>Cuốc hôm nay (${tr.length})</h2>`+(tr.length?tr.slice().reverse().map(t=>tripCard(t)).join(''):'<div class="card mu">Chưa có cuốc nào. Bấm “Thêm cuốc” để bắt đầu.</div>');
+ h+=`<h2>Cuốc hôm nay (${tr.length})</h2>`+(tr.length?tr.slice().sort((a,b)=>b.ts-a.ts||b.id-a.id).map(t=>tripCard(t)).join(''):'<div class="card mu">Chưa có cuốc nào. Bấm “Thêm cuốc” để bắt đầu.</div>');
  return h}
 function expForm(){sheet(`<h2 style="margin-top:0">Ghi chi phí</h2><div class="chips" style="margin:0 0 6px">${['Xăng','Gửi xe','Ăn uống','Sửa xe'].map(x=>`<button class="s" onclick="$('eN').value='${x}'">${x}</button>`).join('')}</div>
  <label>Nội dung</label><input id="eN"><label>Số tiền</label><input id="eA" type="text" inputmode="numeric" class="mi">
@@ -566,7 +609,7 @@ function viewStats(){
  <div class="cw">${ks.map(k=>{const v=days[k]||0,wd=['CN','T2','T3','T4','T5','T6','T7'][new Date(k+'T00:00').getDay()];
   return `<div class="cc" onclick="$('cinfo').innerHTML='<b>${wd} ${k.slice(8)}/${k.slice(5,7)}</b>: ${money(v)}'"><span class="cv">${v?short(v):'–'}</span>
   <div class="cb"><i style="height:${v?Math.max(4,v/mx*100):0}%;${v&&v===mx?'background:var(--wa)':''}"></i></div><span class="cd">${k.slice(8)}/${k.slice(5,7)}</span><span class="cd" style="opacity:.7">${wd}</span></div>`}).join('')}</div></div>
- <div class="row sp"><h2>Danh sách cuốc (${tr.length})</h2>${tr.length?'<button class="s d" onclick="delFiltered()">Xoá danh sách này</button>':''}</div>`+(tr.length?tr.slice().reverse().map(t=>tripCard(t)).join(''):'<div class="card mu">Không có cuốc phù hợp bộ lọc.</div>')+
+ <div class="row sp"><h2>Danh sách cuốc (${tr.length})</h2>${tr.length?'<button class="s d" onclick="delFiltered()">Xoá danh sách này</button>':''}</div>`+(tr.length?tr.slice().sort((a,b)=>b.ts-a.ts||b.id-a.id).map(t=>tripCard(t)).join(''):'<div class="card mu">Không có cuốc phù hợp bộ lọc.</div>')+
  (S.shifts.length?'<h2>Các ca đã kết thúc</h2>'+S.shifts.slice(0,15).map(s=>`<div class="card">${dt(s.start)} → ${tm(s.end)} · ${s.n} cuốc<br>Thực nhận ${money(s.net)} · Lợi nhuận <b class="${cls(s.profit)}">${money(s.profit)}</b><br>Tiền mặt: dự kiến ${money(s.exp)}, thực tế ${money(s.act)} → <b class="${cls(s.diff)}">${s.diff>=0?'thừa':'thiếu'} ${money(Math.abs(s.diff))}</b>${denLines(s)}</div>`).join(''):'')}
 
 /* ================= CÀI ĐẶT ================= */
@@ -603,7 +646,7 @@ function render(){
  $('startShiftButton')?.addEventListener('click',startShift);
  const cw=document.querySelector('.cw');if(cw)cw.scrollLeft=cw.scrollWidth; // cuộn tới ngày mới nhất
  $('fab').style.display=(tab==='home'||tab==='stats')?'':'none';
- $('nav').innerHTML=[['home','🏍️','Hôm nay'],['wallet','👛','Ví'],['stats','📊','Thống kê'],['set','⚙️','Cài đặt']].map(([k,i,l])=>`<button class="${tab===k?'on':''}" onclick="tab='${k}';render();scrollTo(0,0)"><span>${i}</span>${l}</button>`).join('')}
+ $('nav').innerHTML=[['home','home','Hôm nay'],['wallet','wallet','Ví'],['stats','stats','Thống kê'],['set','settings','Cài đặt']].map(([k,i,l])=>`<button class="${tab===k?'on':''}" onclick="tab='${k}';render();scrollTo(0,0)"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-${i}"/></svg>${l}</button>`).join('')}
 theme();render();
 if(S.set.keepAwake)wlOn(true);
 </script>
