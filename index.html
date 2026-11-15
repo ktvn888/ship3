@@ -49,6 +49,12 @@ nav span{display:block;font-size:20px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid .card{margin:0}
 .toast{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:10px 16px;border-radius:12px;z-index:30;font-size:14px}
 .sw{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0}.sw input{width:26px;min-height:26px}
+.den{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+.dc{display:flex;align-items:center;gap:4px;background:var(--bg);border:1px solid var(--ln);border-radius:10px;padding:4px}
+.dc b{width:40px;font-size:14px;padding-left:4px}
+.dc input{min-height:38px;padding:0 2px;text-align:center;flex:1;min-width:0}
+.dc button{padding:0;width:34px;flex:none}
+summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:600;color:var(--ac)}
 </style>
 </head>
 <body>
@@ -61,8 +67,8 @@ const K='grab_tinh_tien_v1';
 const TYPES={bike:'Grab Bike',food:'Grab Food',mart:'Grab Mart',express:'Grab Express',ngoai:'Cuốc ngoài'};
 const PAYS={cash:'Tiền mặt',bank:'Chuyển khoản',split:'Nửa tiền mặt, nửa CK',card:'Thẻ/Ví điện tử'};
 const STAT={run:'Đang chạy',done:'Hoàn thành',cancel:'Huỷ'};
-const def=()=>({trips:[],exps:[],credit:{bal:0,log:[]},driver:{bal:0,log:[]},shift:null,shifts:[],seq:0,
- set:{goal:1000000,bikeRate:20,cashFee:true,cashNet:true,theme:''}});
+const def=()=>({trips:[],exps:[],credit:{bal:0,log:[]},driver:{bal:0,log:[]},shift:null,shifts:[],counts:[],seq:0,
+ set:{goal:1000000,bikeRate:20,cashFee:true,cashNet:true,keepAwake:false,theme:''}});
 let S=load(),tab='home',wsel='credit',F={from:'',to:'',type:'',pay:'',range:'day'};
 function load(){try{const d=def(),x=JSON.parse(localStorage.getItem(K)||'{}');return{...d,...x,set:{...d.set,...(x.set||{})}}}catch(e){return def()}}
 function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){toast('Không lưu được dữ liệu!')}}
@@ -71,7 +77,21 @@ function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){toast('Kh
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money=n=>(n<0?'-':'')+Math.abs(Math.round(n||0)).toLocaleString('vi-VN')+'đ';
-const num=v=>Math.max(0,Math.round(parseFloat(v)||0));
+/* Đọc số từ ô nhập: bỏ dấu chấm ngăn cách hàng nghìn ("1.000" -> 1000) */
+const val=v=>typeof v==='number'?v:(parseFloat(String(v??'').replace(/\./g,''))||0);
+const num=v=>Math.max(0,Math.round(val(v)));
+const fmt=n=>n?Math.round(n).toLocaleString('vi-VN'):''; // số -> chuỗi có dấu chấm, để điền vào ô nhập
+/* Ô nhập tiền (class "mi"): vừa gõ vừa định dạng 1.000, giữ nguyên vị trí con trỏ. data-neg cho phép số âm */
+function fmtInput(el){
+ const neg=el.dataset.neg&&el.value.trim().startsWith('-');
+ const caret=el.selectionStart??el.value.length;
+ const before=el.value.slice(0,caret).replace(/\D/g,'').length;
+ const digits=el.value.replace(/\D/g,'').slice(0,12);
+ let out=digits?Number(digits).toLocaleString('vi-VN'):'';if(neg)out='-'+out;
+ el.value=out;
+ let c=0,i=neg?1:0;for(;i<out.length&&c<before;i++){if(/\d/.test(out[i]))c++}
+ try{el.setSelectionRange(i,i)}catch(_){}}
+document.addEventListener('input',e=>{if(e.target.classList&&e.target.classList.contains('mi'))fmtInput(e.target)},true); // capture: chạy trước các oninput khác
 const dkey=ts=>new Date(ts).toLocaleDateString('sv-SE');
 const tm=ts=>new Date(ts).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'});
 const dt=ts=>new Date(ts).toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
@@ -133,6 +153,27 @@ function feeInfo(due,net,bike){const fee=due-net;
   return `Grab lấy: <b>${money(fee)}</b>${due?` (${(fee/due*100).toFixed(1)}%)`:''}<br>Bạn nhận: <b>${money(net)}</b>${due?` (${(net/due*100).toFixed(1)}%)`:''}`}
  return fee<0?`Chênh lệch: <b>+${money(-fee)}</b> (ròng cao hơn phải thu)`:`Chênh lệch: <b>${money(fee)}</b>`}
 
+/* ===== Đếm mệnh giá tiền mặt =====
+   DV[key] = {mệnhgiá: số tờ}. key: 'open' (đầu ca), 'in' (khách đưa), 'out' (trả lại), 'exp' (chi phí), 'end' (cuối ca) */
+const DENS=[500000,200000,100000,50000,20000,10000,5000,2000,1000];
+const DV={},DCB={};
+const dlab=d=>d>=1000?(d/1000)+'k':String(d);
+const denSum=o=>Object.entries(o||{}).reduce((a,[d,n])=>a+Number(d)*n,0);
+function denHtml(key,vals,cb){DV[key]={...(vals||{})};DCB[key]=cb;
+ return `<div class="den">`+DENS.map(d=>`<div class="dc"><b>${dlab(d)}</b><button type="button" class="s" onclick="denAdd('${key}',${d},-1)">−</button><input type="number" inputmode="numeric" min="0" id="d_${key}_${d}" value="${DV[key][d]||''}" oninput="denSet('${key}',${d},this.value)"><button type="button" class="s" onclick="denAdd('${key}',${d},1)">+</button></div>`).join('')+`</div><div class="mu" id="dt_${key}" style="margin-top:4px"></div>`}
+function denTot(key){const e=$('dt_'+key);if(e)e.textContent='Tổng đã đếm: '+money(denSum(DV[key]))}
+function denSet(key,d,v){const n=Math.max(0,Math.floor(parseFloat(v)||0));if(n)DV[key][d]=n;else delete DV[key][d];denTot(key);if(DCB[key])DCB[key]()}
+function denAdd(key,d,k){const n=Math.max(0,(DV[key][d]||0)+k);const e=$('d_'+key+'_'+d);if(e)e.value=n||'';denSet(key,d,n)}
+/* So sánh số tờ dự kiến và thực đếm của từng mệnh giá */
+function denLines(s){const e=s.expDen||{},a=s.denEnd||{};if(!denSum(a))return '';
+ const t=DENS.filter(d=>e[d]||a[d]).map(d=>{const x=(a[d]||0)-(e[d]||0);return dlab(d)+': '+(x===0?'khớp':(x>0?'thừa ':'thiếu ')+Math.abs(x))});
+ return '<br>Đếm mệnh giá: '+t.join(' · ')}
+/* Kiểm tra đếm trong form cuốc: so với số tiền dự kiến */
+function denChk(){const e=$('fDenW');if(!e)return;const si=denSum(DV['in']),so=denSum(DV.out),m=[];
+ if(si)m.push(`Khách đưa đã đếm ${money(si)} / dự kiến ${money(f.expIn||0)} ${si===(f.expIn||0)?'✓':'— lệch'}`);
+ if(so)m.push(`Trả lại đã đếm ${money(so)} / dự kiến ${money(f.expOut||0)} ${so===(f.expOut||0)?'✓':'— lệch'}`);
+ e.innerHTML=m.join('<br>')}
+
 /* ================= FORM CUỐC ================= */
 let f={};
 function tripForm(id){
@@ -145,27 +186,31 @@ function tripForm(id){
  <label>Loại cuốc</label>${seg('type',TYPES)}
  <div id="fGrpW"><label>Kiểu cuốc (Food/Mart)</label>${seg('grp',{0:'Đơn lẻ',1:'Nhóm đơn'})}</div>
  <div id="fSubsW"><label>Các đơn trong nhóm</label><div id="fSubs"></div><button type="button" class="f" style="width:100%;margin-top:8px" onclick="subAdd()">+ Thêm đơn</button></div>
- <div id="fApp"><div id="fDueW"><label>Tiền phải thu của khách (nhập 0 nếu voucher trừ hết)</label><input id="fDue" type="number" inputmode="numeric" min="0" value="${f.due||''}"></div>
- <label id="fNetL">Tiền ròng thực nhận</label><input id="fNet" type="number" inputmode="numeric" min="0" value="${f.net||''}">
- <label>Tiền thưởng cuốc (nếu có)</label><input id="fBonus" type="number" inputmode="numeric" min="0" value="${f.bonus||''}">
- <label>Tip ngoài (khách tặng tiền mặt riêng, không qua app)</label><input id="fTipOut" type="number" inputmode="numeric" min="0" value="${f.tipOut||''}"></div>
- <div id="fOut"><label>Số tiền khách trả</label><input id="fAmt" type="number" inputmode="numeric" min="0" value="${f.type==='ngoai'?f.due||'':''}"></div>
+ <div id="fApp"><div id="fDueW"><label>Tiền phải thu của khách (nhập 0 nếu voucher trừ hết)</label><input id="fDue" type="text" inputmode="numeric" class="mi" value="${fmt(f.due)}"></div>
+ <label id="fNetL">Tiền ròng thực nhận</label><input id="fNet" type="text" inputmode="numeric" class="mi" value="${fmt(f.net)}">
+ <label>Tiền thưởng cuốc (nếu có)</label><input id="fBonus" type="text" inputmode="numeric" class="mi" value="${fmt(f.bonus)}">
+ <label>Tip ngoài (khách tặng tiền mặt riêng, không qua app)</label><input id="fTipOut" type="text" inputmode="numeric" class="mi" value="${fmt(f.tipOut)}"></div>
+ <div id="fOut"><label>Số tiền khách trả</label><input id="fAmt" type="text" inputmode="numeric" class="mi" value="${f.type==='ngoai'?fmt(f.due):''}"></div>
  <label id="fPayL">Hình thức thanh toán</label><div id="fPay"></div>
- <div id="fCash"><label id="fGivenL">Khách đưa</label><input id="fGiven" type="number" inputmode="numeric" min="0" value="${f.given||''}">
+ <div id="fCash"><label id="fGivenL">Khách đưa</label><input id="fGiven" type="text" inputmode="numeric" class="mi" value="${fmt(f.given)}">
  <div class="chips" id="fChips"></div></div>
- <div id="fSplit"><label>Khách đưa tiền mặt</label><input id="fSC" type="number" inputmode="numeric" min="0" value="${f.cashPart||''}"><div class="chips" id="fSChips"></div>
- <label>Khách chuyển khoản</label><input id="fSB" type="number" inputmode="numeric" min="0" value="${f.bankPart||''}"></div>
- <div id="fTipW"><label>Tip (nếu có)</label><input id="fTip" type="number" inputmode="numeric" min="0" value="${f.tip||''}"></div>
+ <div id="fSplit"><label>Khách đưa tiền mặt</label><input id="fSC" type="text" inputmode="numeric" class="mi" value="${fmt(f.cashPart)}"><div class="chips" id="fSChips"></div>
+ <label>Khách chuyển khoản</label><input id="fSB" type="text" inputmode="numeric" class="mi" value="${fmt(f.bankPart)}"></div>
+ <div id="fTipW"><label>Tip (nếu có)</label><input id="fTip" type="text" inputmode="numeric" class="mi" value="${fmt(f.tip)}"></div>
  <div class="card" id="fPrev" style="margin:12px 0 0"></div>
+ <details id="fDen" style="margin-top:8px"><summary>Đếm mệnh giá tiền mặt (tuỳ chọn)</summary>
+ <label>Tiền khách đưa (gồm cả tip tiền mặt)</label>${denHtml('in',f.denIn,denChk)}
+ <label>Tiền trả lại khách</label>${denHtml('out',f.denOut,denChk)}<div id="fDenW" class="mu" style="margin-top:6px"></div></details>
  <label>Trạng thái</label>${seg('status',STAT)}
  <label>Ghi chú</label><input id="fNote" value="${esc(f.note)}" placeholder="Không bắt buộc">
  <div class="row" style="margin-top:14px"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="saveTrip(${id||0})">Lưu</button></div>`);
  document.querySelectorAll('.seg[data-k]').forEach(g=>g.onclick=e=>{const b=e.target.closest('button');if(!b)return;
   f[g.dataset.k]=b.dataset.v;g.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));fview()});
  ['fDue','fNet','fBonus','fTipOut','fTip','fAmt','fGiven','fSC','fSB'].forEach(i=>$(i).oninput=()=>{if(i==='fNet')f.touched=true;fview(i)});
- $('fChips').innerHTML=[20000,50000,100000,200000,500000].map(v=>`<button type="button" class="s" onclick="$('fGiven').value=${v};fview()">${v/1000}k</button>`).join('')+
-  '<button type="button" class="s" onclick="$(\'fGiven\').value=f.dueV;fview()">Đủ tiền</button>';
- $('fSChips').innerHTML=[20000,50000,100000,200000].map(v=>`<button type="button" class="s" onclick="$('fSC').value=${v};fview()">${v/1000}k</button>`).join('');
+ $('fChips').innerHTML=[20000,50000,100000,200000,500000].map(v=>`<button type="button" class="s" onclick="$('fGiven').value='${fmt(v)}';fview()">${v/1000}k</button>`).join('')+
+  '<button type="button" class="s" onclick="$(\'fGiven\').value=fmt(f.dueV);fview()">Đủ tiền</button>';
+ $('fSChips').innerHTML=[20000,50000,100000,200000].map(v=>`<button type="button" class="s" onclick="$('fSC').value='${fmt(v)}';fview()">${v/1000}k</button>`).join('');
+ denTot('in');denTot('out');
  renderSubs();fview();
 }
 /* Cập nhật giao diện form theo loại/thanh toán và tính tiền trả lại, phí, % */
@@ -174,11 +219,11 @@ function groupPrev(due,net){const by={};(f.subs||[]).forEach(x=>{by[x.pay]=(by[x
  return 'Tổng phải thu: <b>'+money(due)+'</b><br>Tổng ròng: <b>'+money(net)+'</b><br>Chênh lệch: <b>'+money(due-net)+'</b><br>'+Object.entries(by).map(([k,v])=>PAYS[k]+': '+money(v)).join(' · ')}
 function renderSubs(){$('fSubs').innerHTML=f.subs.map((x,i)=>`<div class="card" style="margin:8px 0 0"><div class="row sp"><b>Đơn ${i+1}</b>${f.subs.length>1?`<button type="button" class="s d" onclick="subDel(${i})">Xoá</button>`:''}</div>
  <div class="seg" style="margin-top:8px">${[['food','Grab Food'],['mart','Grab Mart']].map(([v,l])=>`<button type="button" class="${(x.kind||f.type)===v?'on':''}" onclick="subKind(${i},'${v}')">${l}</button>`).join('')}</div>
- <label>Tiền phải thu</label><input type="number" inputmode="numeric" min="0" value="${x.due||''}" oninput="subSet(${i},'due',this.value)">
+ <label>Tiền phải thu</label><input type="text" inputmode="numeric" class="mi" value="${fmt(x.due)}" oninput="subSet(${i},'due',this.value)">
  <label>Thanh toán</label><div class="seg">${Object.entries(PAYS).map(([v,l])=>`<button type="button" class="${x.pay===v?'on':''}" onclick="subPay(${i},'${v}')">${l}</button>`).join('')}</div>
- ${x.pay==='cash'?`<label>Khách đưa (để trống nếu đủ)</label><input type="number" inputmode="numeric" min="0" value="${x.given||''}" oninput="subSet(${i},'given',this.value)"><div class="mu" id="sc${i}"></div>`:''}
- ${x.pay==='bank'?`<label>Khách chuyển khoản (để trống nếu đúng số tiền)</label><input type="number" inputmode="numeric" min="0" value="${x.given||''}" oninput="subSet(${i},'given',this.value)"><div class="mu" id="sc${i}"></div>`:''}
- ${x.pay==='split'?`<label>Khách đưa tiền mặt</label><input type="number" inputmode="numeric" min="0" value="${x.cashPart||''}" oninput="subSet(${i},'cashPart',this.value)"><label>Khách chuyển khoản</label><input type="number" inputmode="numeric" min="0" value="${x.bankPart||''}" oninput="subSet(${i},'bankPart',this.value)"><div class="mu" id="sc${i}"></div>`:''}</div>`).join('');fview()}
+ ${x.pay==='cash'?`<label>Khách đưa (để trống nếu đủ)</label><input type="text" inputmode="numeric" class="mi" value="${fmt(x.given)}" oninput="subSet(${i},'given',this.value)"><div class="mu" id="sc${i}"></div>`:''}
+ ${x.pay==='bank'?`<label>Khách chuyển khoản (để trống nếu đúng số tiền)</label><input type="text" inputmode="numeric" class="mi" value="${fmt(x.given)}" oninput="subSet(${i},'given',this.value)"><div class="mu" id="sc${i}"></div>`:''}
+ ${x.pay==='split'?`<label>Khách đưa tiền mặt</label><input type="text" inputmode="numeric" class="mi" value="${fmt(x.cashPart)}" oninput="subSet(${i},'cashPart',this.value)"><label>Khách chuyển khoản</label><input type="text" inputmode="numeric" class="mi" value="${fmt(x.bankPart)}" oninput="subSet(${i},'bankPart',this.value)"><div class="mu" id="sc${i}"></div>`:''}</div>`).join('');fview()}
 function subSet(i,k,v){f.subs[i][k]=num(v);fview()}
 function subKind(i,v){f.subs[i].kind=v;renderSubs()}
 function subPay(i,v){f.subs[i].pay=v;renderSubs()}
@@ -221,6 +266,14 @@ function fview(src){
  if(f.bonusV)h+='<br>Thưởng: <b>+'+money(f.bonusV)+'</b> vào ví tài xế';
  if(f.status==='done'&&S.set.cashFee&&!ng){const need=isG?f.subs.filter(x=>x.pay!=='card').reduce((a,x)=>a+num(x.due),0):(f.pay!=='card'?due:0),av=Math.max(0,S.credit.bal-(f.applied?f.applied.c:0));
   if(need>av)h+='<br><span class="warn">Ví tín dụng thiếu '+money(need-av)+', sẽ trích từ ví tài xế.</span>'}
+ /* Vùng đếm mệnh giá chỉ hiện khi cuốc có tiền mặt; tính số tiền mặt dự kiến vào/ra để đối chiếu */
+ const hasCash=isG?f.subs.some(x=>x.pay==='cash'||x.pay==='split'):(f.pay==='cash'||f.pay==='split');
+ $('fDen').style.display=(hasCash||f.tipOutV)?'':'none';
+ let ei=0,eo=0;
+ if(isG)f.subs.forEach(x=>{if(x.pay==='cash'){const g2=num(x.given)||num(x.due);ei+=g2;eo+=g2-num(x.due)}else if(x.pay==='split'){const q=splitOf({cashPart:num(x.cashPart),bankPart:num(x.bankPart),due:num(x.due)});ei+=q.c;eo+=q.ch}});
+ else if(sp||(ng&&f.pay==='split')){const q=splitOf({cashPart:f.cashV,bankPart:f.bankV,due},f.tipV);ei=q.c;eo=q.ch}
+ else if(f.pay==='cash'){if(ng)ei=due;else{const g2=g||due+f.tipV;ei=g2;eo=g2-due-f.tipV}}
+ f.expIn=ei+(f.tipOutV||0);f.expOut=eo;denChk();
  $('fPrev').innerHTML=h;
 }
 function saveTrip(id){
@@ -236,7 +289,7 @@ function saveTrip(id){
  if(!ng&&!isG&&f.pay==='bank'&&g&&g<due)return alert('Khách chuyển chưa đủ tiền phải thu.');
  const old=S.trips.find(t=>t.id===id);
  const t={id:old?old.id:Date.now(),no:old?old.no:++S.seq,type:f.type,pay:isG?'mixed':f.pay,subs:isG?f.subs.map(x=>({kind:x.kind||f.type,due:num(x.due),pay:x.pay,given:(x.pay==='cash'||x.pay==='bank')?num(x.given):0,cashPart:x.pay==='split'?num(x.cashPart):0,bankPart:x.pay==='split'?num(x.bankPart):0})):undefined,status:f.status,due,net,given:(!ng&&(f.pay==='cash'||f.pay==='bank'))?g:0,cashPart:sp?f.cashV:(ng&&f.pay==='split'?f.cashV:0),bankPart:f.pay==='split'?f.bankV:0,tip:f.tipV,
-  bonus:ng?0:f.bonusV,tipOut:ng?0:f.tipOutV,note:$('fNote').value.trim(),ts:old?old.ts:Date.now(),applied:old?old.applied:null};
+  bonus:ng?0:f.bonusV,tipOut:ng?0:f.tipOutV,denIn:($('fDen').style.display!=='none'&&denSum(DV['in']))?{...DV['in']}:undefined,denOut:($('fDen').style.display!=='none'&&denSum(DV.out))?{...DV.out}:undefined,note:$('fNote').value.trim(),ts:old?old.ts:Date.now(),applied:old?old.applied:null};
  creditOk(t,old,()=>{revert(t,'Hoàn tác');applyTrip(t);
   const i=S.trips.findIndex(x=>x.id===t.id);if(i>=0)S.trips[i]=t;else S.trips.push(t);
   save();closeSheet();render();toast('Đã lưu cuốc'+(lastShort?'. Ví tín dụng thiếu '+money(lastShort)+', đã trích từ ví tài xế':''))})}
@@ -272,19 +325,52 @@ function tripCard(t,btn=true){
 function shiftCalc(sh){
  const inR=x=>x.ts>=sh.start&&(!sh.end||x.ts<=sh.end);
  const tr=S.trips.filter(t=>inR(t)&&t.status==='done'),ex=S.exps.filter(inR);
- let ci=0,co=0;tr.forEach(t=>{const c=cashOf(t);ci+=c.in;co+=c.out});
+ let ci=0,co=0,cashTrips=0,withDen=0;const den={...(sh.openDen||{})};
+ tr.forEach(t=>{const c=cashOf(t);ci+=c.in;co+=c.out;
+  if(c.in||c.out){cashTrips++;if(denSum(t.denIn)||denSum(t.denOut))withDen++}
+  for(const d in (t.denIn||{}))den[d]=(den[d]||0)+t.denIn[d];
+  for(const d in (t.denOut||{}))den[d]=(den[d]||0)-t.denOut[d]});
+ ex.forEach(e=>{for(const d in (e.denOut||{}))den[d]=(den[d]||0)-e.denOut[d]});
  const ce=ex.filter(e=>e.cash).reduce((a,e)=>a+e.amt,0),all=ex.reduce((a,e)=>a+e.amt,0);
  const net=tr.reduce((a,t)=>a+inc(t),0);
- return{n:tr.length,net,ci,co,ce,all,exp:sh.open+ci-co-ce,profit:net-all}}
-function startShift(){sheet(`<h2 style="margin-top:0">Bắt đầu ca</h2><label>Tiền mặt đầu ca</label><input id="sOpen" type="number" inputmode="numeric" min="0">
- <div class="row" style="margin-top:14px"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="S.shift={start:Date.now(),open:num($('sOpen').value)};save();closeSheet();render()">Bắt đầu</button></div>`)}
+ return{n:tr.length,net,ci,co,ce,all,exp:sh.open+ci-co-ce,profit:net-all,expDen:den,cashTrips,withDen,hasOpenDen:!!denSum(sh.openDen)}}
+function startShift(){sheet(`<h2 style="margin-top:0">Bắt đầu ca</h2><label>Tiền mặt đầu ca</label><input id="sOpen" type="text" inputmode="numeric" class="mi">
+ <details style="margin-top:8px"><summary>Đếm theo mệnh giá (tuỳ chọn, để đối soát cuối ca)</summary>${denHtml('open',{},()=>{const t=denSum(DV.open);if(t)$('sOpen').value=fmt(t)})}</details>
+ <div class="row" style="margin-top:14px"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="S.shift={start:Date.now(),open:num($('sOpen').value),openDen:denSum(DV.open)?{...DV.open}:{}};save();closeSheet();render()">Bắt đầu</button></div>`);denTot('open')}
 function endShift(){const c=shiftCalc(S.shift);
  sheet(`<h2 style="margin-top:0">Kết thúc ca</h2><div class="card">Số cuốc hoàn thành: <b>${c.n}</b><br>Tổng thực nhận: <b>${money(c.net)}</b><br>Chi phí: <b>${money(c.all)}</b><br>Lợi nhuận: <b class="${cls(c.profit)}">${money(c.profit)}</b><br><br>
  Đầu ca: ${money(S.shift.open)}<br>+ Tiền mặt thu: ${money(c.ci)}<br>− Trả lại khách: ${money(c.co)}<br>− Chi tiền mặt: ${money(c.ce)}<br>= Dự kiến cuối ca: <b>${money(c.exp)}</b></div>
- <label>Tiền mặt thực tế cuối ca</label><input id="sAct" type="number" inputmode="numeric" min="0" oninput="const d=num(this.value)-${c.exp};$('sDiff').innerHTML=this.value===''?'':(d>=0?'Thừa ':'Thiếu ')+money(Math.abs(d));$('sDiff').className=d<0?'neg':'pos'">
- <p id="sDiff"></p><div class="row"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="doEnd(${c.exp})">Kết thúc ca</button></div>`)}
+ <details open style="margin-top:8px"><summary>Đếm tiền cuối ca để đối soát kết ca</summary>${denHtml('end',{},endChk)}<div id="sDen" style="margin-top:8px"></div></details>
+ <label>Tiền mặt thực tế cuối ca (tự điền khi bạn đếm mệnh giá)</label><input id="sAct" type="text" inputmode="numeric" class="mi" oninput="endDiff(${c.exp})">
+ <p id="sDiff"></p><div class="row"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="doEnd(${c.exp})">Kết thúc ca</button></div>`);E_C=c;denTot('end');endChk()}
+let E_C=null;
+function endDiff(exp){const v=$('sAct').value,d=num(v)-exp;$('sDiff').innerHTML=v===''?'':(d>=0?'Thừa ':'Thiếu ')+money(Math.abs(d));$('sDiff').className=d<0?'neg':'pos'}
+/* Đối soát cuối ca: so số tờ dự kiến (đầu ca + khách đưa − trả lại − chi) với số tờ đếm được */
+/* Các dòng so sánh số tờ dự kiến / đếm được của từng mệnh giá (dùng cho kết ca và đếm thực tế) */
+function denRows(expDen,a){return DENS.filter(d=>(expDen[d]||0)||(a[d]||0)).map(d=>{const e=expDen[d]||0,n=a[d]||0,x=n-e;
+  return `<div class="row sp"><span>${dlab(d)}: dự kiến <b>${e}</b> · đếm <b>${n}</b></span><b class="${x<0?'neg':x>0?'pos':''}">${x===0?'khớp':(x>0?'thừa ':'thiếu ')+Math.abs(x)+' tờ'}</b></div>`}).join('')}
+/* ===== Đếm tiền mặt thực tế (bấm bất cứ lúc nào, không cần kết ca) ===== */
+let E_C2=null;
+function countSheet(){
+ const c=S.shift?shiftCalc(S.shift):null;E_C2=c;
+ sheet(`<h2 style="margin-top:0">Đếm tiền mặt thực tế</h2>
+ <div class="mu">${c?'Ca đang chạy: dự kiến trong két '+money(c.exp)+'. Đếm xong sẽ so sánh ngay, không kết ca.':'Chưa bắt đầu ca nên chỉ đếm và lưu, không đối soát.'}</div>
+ ${denHtml('cnt',{},cntChk)}<div id="cRes" style="margin-top:8px"></div>
+ <div class="row" style="margin-top:14px"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="saveCount()">Lưu lần đếm</button></div>
+ ${(S.counts||[]).length?'<h2>Các lần đếm gần đây</h2>'+S.counts.slice(0,5).map(x=>`<div class="card">${dt(x.ts)} · <b>${money(x.total)}</b>${x.exp!=null?` · ${x.total-x.exp>=0?'thừa':'thiếu'} ${money(Math.abs(x.total-x.exp))} so với dự kiến`:''}</div>`).join(''):''}`);
+ denTot('cnt');cntChk()}
+function cntChk(){const a=DV.cnt,sum=denSum(a),c=E_C2;if(!$('cRes'))return;let h='';
+ if(c){const d=sum-c.exp;h+=`<div class="row sp"><span>Dự kiến trong két</span><b>${money(c.exp)}</b></div><div class="row sp"><span>Chênh lệch</span><b class="${d<0?'neg':'pos'}">${sum?(d>=0?'Thừa ':'Thiếu ')+money(Math.abs(d)):'—'}</b></div>`+(sum?denRows(c.expDen,a):'')}
+ $('cRes').innerHTML=h}
+function saveCount(){const sum=denSum(DV.cnt);if(!sum)return alert('Hãy nhập số tờ đã đếm.');
+ const c=E_C2;S.counts=[{ts:Date.now(),total:sum,exp:c?c.exp:null,den:{...DV.cnt}},...(S.counts||[])].slice(0,30);save();closeSheet();toast('Đã lưu lần đếm')}
+function endChk(){const c=E_C,a=DV.end,sum=denSum(a);if(!c||!$('sDen'))return;
+ if(sum){$('sAct').value=fmt(sum);endDiff(c.exp)}
+ const rows=denRows(c.expDen,a);
+ const full=c.hasOpenDen&&c.withDen>=c.cashTrips;
+ $('sDen').innerHTML=rows+`<div class="mu" style="margin-top:6px;font-size:12px;${full?'':'color:var(--wa)'}">Số tờ dự kiến = đầu ca + khách đưa − trả lại − chi. Hiện có ${c.hasOpenDen?'đã':'chưa'} đếm đầu ca, ${c.withDen}/${c.cashTrips} cuốc tiền mặt có nhập mệnh giá${full?'.':', nên số tờ dự kiến có thể chưa chính xác.'}</div>`}
 function doEnd(exp){const a=$('sAct').value;if(a==='')return alert('Hãy nhập tiền mặt thực tế.');
- const sh={...S.shift,end:Date.now()},c=shiftCalc(sh);S.shifts.unshift({...sh,...c,act:num(a),diff:num(a)-exp});S.shift=null;save();closeSheet();render();toast('Đã kết thúc ca')}
+ const sh={...S.shift,end:Date.now()},c=shiftCalc(sh);S.shifts.unshift({...sh,...c,act:num(a),diff:num(a)-exp,denEnd:{...DV.end}});S.shift=null;save();closeSheet();render();toast('Đã kết thúc ca')}
 
 /* ===== Tổng quan tiền khách trả theo hình thức: tiền mặt / chuyển khoản / thẻ-ví ===== */
 function payOverview(done){
@@ -301,6 +387,20 @@ function payOverview(done){
  return `<div class="card"><b>Tiền khách trả theo hình thức</b>`+K3.map(k=>`<div class="row sp" style="margin-top:10px"><span>${PAYS[k]} <span class="mu">· ${m[k].n} đơn</span></span><b>${money(m[k].v)}</b></div><div class="bar" style="height:8px;margin-top:4px"><i style="width:${tot?m[k].v/tot*100:0}%"></i></div>`).join('')+
  `<div class="row sp" style="margin-top:10px"><span class="mu">Tổng</span><b>${money(tot)}</b></div>${sp?`<div class="mu" style="margin-top:4px;font-size:12px">Có ${sp} đơn nửa tiền mặt, nửa CK: đã chia vào hai dòng tiền mặt và chuyển khoản.</div>`:''}<div class="mu" style="margin-top:4px;font-size:12px">Gồm tiền phải thu + tip của khách. Tip ngoài tính vào tiền mặt.</div></div>`}
 
+/* ===== Giữ màn hình luôn sáng (Screen Wake Lock) =====
+   Trình duyệt tự nhả khoá khi chuyển tab/tắt màn hình, nên phải xin lại khi quay về. */
+let WL=null;
+async function wlOn(quiet){
+ if(!('wakeLock' in navigator)){if(!quiet)toast('Trình duyệt này không hỗ trợ giữ sáng màn hình');return false}
+ try{WL=await navigator.wakeLock.request('screen');WL.addEventListener('release',()=>{WL=null});return true}
+ catch(e){WL=null;if(!quiet)toast('Không bật được: trình duyệt chặn hoặc máy đang bật tiết kiệm pin');return false}}
+function wlOff(){if(WL){WL.release().catch(()=>{});WL=null}}
+async function toggleAwake(on){S.set.keepAwake=on;save();
+ if(on){const ok=await wlOn();if(!ok){S.set.keepAwake=false;save()}else toast('Đã bật giữ màn hình sáng')}else{wlOff();toast('Đã tắt giữ màn hình sáng')}
+ render()}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.set.keepAwake&&!WL)wlOn(true)});
+document.addEventListener('pointerdown',()=>{if(S.set.keepAwake&&!WL)wlOn(true)},{passive:true}); // lúc mở app chưa xin được thì thử lại khi chạm
+
 /* ================= TRANG CHỦ ================= */
 function viewHome(){
  const today=dkey(Date.now()),tr=S.trips.filter(t=>dkey(t.ts)===today),done=tr.filter(t=>t.status==='done');
@@ -309,21 +409,23 @@ function viewHome(){
  <div class="card"><div class="mu">Ví tài xế</div><div class="big">${money(S.driver.bal)}</div></div></div>
  <div class="card" style="margin-top:10px"><div class="row sp"><span>Mục tiêu hôm nay</span><b>${money(net)} / ${money(g)}</b></div>
  <div class="bar" style="margin:8px 0"><i style="width:${g?Math.min(100,net/g*100):0}%"></i></div><div class="mu">Chi phí hôm nay ${money(exT)} · Lợi nhuận <b class="${cls(net-exT)}">${money(net-exT)}</b></div></div>`;
+ h+=`<button class="${S.set.keepAwake?'p':''}" style="width:100%;margin-top:10px" onclick="toggleAwake(${!S.set.keepAwake})">${S.set.keepAwake?'☀️ Đang giữ màn hình sáng · bấm để tắt':'Giữ màn hình luôn sáng'}</button>`;
  if(S.shift){const c=shiftCalc(S.shift);
   h+=`<div class="card"><div class="row sp"><b>Ca đang chạy từ ${tm(S.shift.start)}</b><button class="s d" onclick="endShift()">Kết thúc ca</button></div>
   <div class="mu" style="margin-top:6px">Đầu ca ${money(S.shift.open)} · Dự kiến cuối ca</div><div class="big">${money(c.exp)}</div></div>`;
  }else h+=`<button class="p" style="width:100%;margin-bottom:10px" onclick="startShift()">Bắt đầu ca</button>`;
  h+=payOverview(done);
- h+=`<div class="row"><button class="f" onclick="expForm()">+ Chi phí</button></div>`;
+ h+=`<div class="row"><button class="f" onclick="expForm()">+ Chi phí</button><button class="f" onclick="countSheet()">Đếm tiền mặt</button></div>`;
  if(ex.length)h+=`<h2>Chi phí hôm nay</h2>`+ex.map(e=>`<div class="card row sp"><span>${esc(e.note||'Chi phí')} <span class="mu">${e.cash?'· tiền mặt':''}</span></span><span><b>${money(e.amt)}</b> <button class="s d" onclick="delExp(${e.id})">Xoá</button></span></div>`).join('');
  h+=`<h2>Cuốc hôm nay (${tr.length})</h2>`+(tr.length?tr.slice().reverse().map(t=>tripCard(t)).join(''):'<div class="card mu">Chưa có cuốc nào. Bấm “Thêm cuốc” để bắt đầu.</div>');
  return h}
 function expForm(){sheet(`<h2 style="margin-top:0">Ghi chi phí</h2><div class="chips" style="margin:0 0 6px">${['Xăng','Gửi xe','Ăn uống','Sửa xe'].map(x=>`<button class="s" onclick="$('eN').value='${x}'">${x}</button>`).join('')}</div>
- <label>Nội dung</label><input id="eN"><label>Số tiền</label><input id="eA" type="number" inputmode="numeric" min="0">
+ <label>Nội dung</label><input id="eN"><label>Số tiền</label><input id="eA" type="text" inputmode="numeric" class="mi">
  <div class="sw"><span>Chi bằng tiền mặt (trừ vào két)</span><input id="eC" type="checkbox" checked></div>
- <div class="row"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="saveExp()">Lưu</button></div>`)}
+ <details><summary>Mệnh giá tiền đã trả (tuỳ chọn)</summary>${denHtml('exp',{},null)}</details>
+ <div class="row"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="saveExp()">Lưu</button></div>`);denTot('exp')}
 function saveExp(){const a=num($('eA').value);if(!a)return alert('Hãy nhập số tiền.');
- S.exps.push({id:Date.now(),ts:Date.now(),note:$('eN').value.trim(),amt:a,cash:$('eC').checked});save();closeSheet();render()}
+ S.exps.push({id:Date.now(),ts:Date.now(),note:$('eN').value.trim(),amt:a,cash:$('eC').checked,denOut:($('eC').checked&&denSum(DV.exp))?{...DV.exp}:undefined});save();closeSheet();render()}
 function delExp(id){ask('Xoá khoản chi này?',()=>{S.exps=S.exps.filter(e=>e.id!==id);save();render()},'Xoá')}
 
 /* ================= VÍ ================= */
@@ -337,10 +439,10 @@ function viewWallet(){
  (w.log.length?w.log.slice(0,200).map(l=>`<div class="card"><div class="row sp"><span>${esc(l.why)}</span><b class="${cls(l.amt)}">${l.amt>0?'+':''}${money(l.amt)}</b></div><div class="mu">${dt(l.ts)} · Số dư sau: ${money(l.bal)}</div></div>`).join(''):'<div class="card mu">Chưa có biến động.</div>')}
 function walletForm(k){
  const T={topup:'Nạp tiền vào ví tín dụng',out:'Rút tiền từ ví tài xế',set:'Chỉnh số dư thủ công',xfer:'Chuyển từ ví tài xế sang ví tín dụng',bonus:'Nhập thưởng vào ví tài xế'};
- sheet(`<h2 style="margin-top:0">${T[k]}</h2><label>${k==='set'?'Số dư mới (có thể âm)':'Số tiền'}</label><input id="wA" type="number" inputmode="numeric" ${k==='set'?'':'min="0"'}>
+ sheet(`<h2 style="margin-top:0">${T[k]}</h2><label>${k==='set'?'Số dư mới (có thể âm)':'Số tiền'}</label><input id="wA" type="text" class="mi" ${k==='set'?'inputmode="text" data-neg="1"':'inputmode="numeric"'}>
  <label>Ghi chú</label><input id="wN"><div class="row" style="margin-top:14px"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="walletDo('${k}')">Xác nhận</button></div>`)}
 function walletDo(k){
- const v=parseFloat($('wA').value),n=$('wN').value.trim();if(isNaN(v))return alert('Hãy nhập số tiền.');
+ const raw=$('wA').value.trim(),v=val(raw),n=$('wN').value.trim();if(raw===''||raw==='-')return alert('Hãy nhập số tiền.');
  if(k!=='set'&&v<=0)return alert('Số tiền phải lớn hơn 0.');
  if(k==='topup')adj('credit',v,'Nạp tiền'+(n?': '+n:''));
  const run=()=>{if(k==='bonus')adj('driver',v,'Thưởng'+(n?': '+n:''));
@@ -393,14 +495,15 @@ function viewStats(){
   return `<div class="cc" onclick="$('cinfo').innerHTML='<b>${wd} ${k.slice(8)}/${k.slice(5,7)}</b>: ${money(v)}'"><span class="cv">${v?short(v):'–'}</span>
   <div class="cb"><i style="height:${v?Math.max(4,v/mx*100):0}%;${v&&v===mx?'background:var(--wa)':''}"></i></div><span class="cd">${k.slice(8)}/${k.slice(5,7)}</span><span class="cd" style="opacity:.7">${wd}</span></div>`}).join('')}</div></div>
  <div class="row sp"><h2>Danh sách cuốc (${tr.length})</h2>${tr.length?'<button class="s d" onclick="delFiltered()">Xoá danh sách này</button>':''}</div>`+(tr.length?tr.slice().reverse().map(t=>tripCard(t)).join(''):'<div class="card mu">Không có cuốc phù hợp bộ lọc.</div>')+
- (S.shifts.length?'<h2>Các ca đã kết thúc</h2>'+S.shifts.slice(0,15).map(s=>`<div class="card">${dt(s.start)} → ${tm(s.end)} · ${s.n} cuốc<br>Thực nhận ${money(s.net)} · Lợi nhuận <b class="${cls(s.profit)}">${money(s.profit)}</b><br>Tiền mặt: dự kiến ${money(s.exp)}, thực tế ${money(s.act)} → <b class="${cls(s.diff)}">${s.diff>=0?'thừa':'thiếu'} ${money(Math.abs(s.diff))}</b></div>`).join(''):'')}
+ (S.shifts.length?'<h2>Các ca đã kết thúc</h2>'+S.shifts.slice(0,15).map(s=>`<div class="card">${dt(s.start)} → ${tm(s.end)} · ${s.n} cuốc<br>Thực nhận ${money(s.net)} · Lợi nhuận <b class="${cls(s.profit)}">${money(s.profit)}</b><br>Tiền mặt: dự kiến ${money(s.exp)}, thực tế ${money(s.act)} → <b class="${cls(s.diff)}">${s.diff>=0?'thừa':'thiếu'} ${money(Math.abs(s.diff))}</b>${denLines(s)}</div>`).join(''):'')}
 
 /* ================= CÀI ĐẶT ================= */
 function viewSet(){
- return `<div class="card"><label style="margin-top:0">Mục tiêu thu nhập mỗi ngày (đ)</label><input type="number" inputmode="numeric" value="${S.set.goal}" onchange="S.set.goal=num(this.value);save();toast('Đã lưu')">
+ return `<div class="card"><label style="margin-top:0">Mục tiêu thu nhập mỗi ngày (đ)</label><input type="text" inputmode="numeric" class="mi" value="${fmt(S.set.goal)}" onchange="S.set.goal=num(this.value);save();toast('Đã lưu')">
  <div class="sw"><span>Cuốc tiền mặt/chuyển khoản: trừ tiền phải thu khỏi ví tín dụng</span><input type="checkbox" ${S.set.cashFee?'checked':''} onchange="S.set.cashFee=this.checked;save()"></div>
  <div class="sw"><span>Cuốc tiền mặt/chuyển khoản: cộng tiền ròng vào ví tài xế</span><input type="checkbox" ${S.set.cashNet?'checked':''} onchange="S.set.cashNet=this.checked;save()"></div>
  <div class="mu">Nếu ví tín dụng không đủ, phần thiếu tự trích từ ví tài xế. Thay đổi chỉ áp dụng cho cuốc lưu hoặc đổi trạng thái từ bây giờ. Cuốc cũ giữ nguyên cách đã tính.</div></div>
+ <div class="card"><div class="sw"><span><b>Giữ màn hình luôn sáng</b><br><span class="mu">Màn hình không tự tắt khi app đang mở. Tốn pin hơn.</span></span><input type="checkbox" ${S.set.keepAwake?'checked':''} onchange="toggleAwake(this.checked)"></div></div>
  <div class="card"><b>Giao diện</b><div class="seg" style="margin-top:8px">${[['','Theo máy'],['light','Sáng'],['dark','Tối']].map(([k,l])=>`<button class="${S.set.theme===k?'on':''}" onclick="S.set.theme='${k}';save();theme();render()">${l}</button>`).join('')}</div></div>
  <div class="card"><b>Dữ liệu</b><button class="d" style="width:100%;margin-top:10px" onclick="delAllTrips()">Xoá toàn bộ lịch sử cuốc</button>
  <button class="d" style="width:100%;margin-top:10px" onclick="wipe()">Xoá toàn bộ dữ liệu</button></div>`}
@@ -424,6 +527,7 @@ function render(){
  $('fab').style.display=(tab==='home'||tab==='stats')?'':'none';
  $('nav').innerHTML=[['home','🏍️','Hôm nay'],['wallet','👛','Ví'],['stats','📊','Thống kê'],['set','⚙️','Cài đặt']].map(([k,i,l])=>`<button class="${tab===k?'on':''}" onclick="tab='${k}';render();scrollTo(0,0)"><span>${i}</span>${l}</button>`).join('')}
 theme();render();
+if(S.set.keepAwake)wlOn(true);
 </script>
 </body>
 </html>
