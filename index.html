@@ -401,7 +401,7 @@ function shiftCalc(sh){
  ex.forEach(e=>{for(const d in (e.denOut||{}))den[d]=(den[d]||0)-e.denOut[d]});
  const ce=ex.filter(e=>e.cash).reduce((a,e)=>a+e.amt,0),all=ex.reduce((a,e)=>a+e.amt,0);
  const net=tr.reduce((a,t)=>a+inc(t),0);
- return{n:tr.length,net,ci,co,ce,all,exp:sh.open+ci-co-ce,profit:net-all,expDen:den,cashTrips,withDen,hasOpenDen:!!denSum(sh.openDen)}}
+ return{n:countOrders(tr),net,ci,co,ce,all,exp:sh.open+ci-co-ce,profit:net-all,expDen:den,cashTrips,withDen,hasOpenDen:!!denSum(sh.openDen)}}
 function startShift(){
  if(S.shift)return;
  sheet(`<form id="sStartForm"><h2 style="margin-top:0">Bắt đầu ca</h2>
@@ -421,34 +421,113 @@ function startShift(){
  });
 }
 function endShift(){const c=shiftCalc(S.shift);
- sheet(`<h2 style="margin-top:0">Kết thúc ca</h2><div class="card">Số cuốc hoàn thành: <b>${c.n}</b><br>Tổng thực nhận: <b>${money(c.net)}</b><br>Chi phí: <b>${money(c.all)}</b><br>Lợi nhuận: <b class="${cls(c.profit)}">${money(c.profit)}</b><br><br>
+ sheet(`<h2 style="margin-top:0">Kết thúc ca</h2><div class="card">Số đơn hoàn thành: <b>${c.n}</b><br>Tổng thực nhận: <b>${money(c.net)}</b><br>Chi phí: <b>${money(c.all)}</b><br>Lợi nhuận: <b class="${cls(c.profit)}">${money(c.profit)}</b><br><br>
  Đầu ca: ${money(S.shift.open)}<br>+ Tiền mặt thu: ${money(c.ci)}<br>− Trả lại khách: ${money(c.co)}<br>− Chi tiền mặt: ${money(c.ce)}<br>= Dự kiến cuối ca: <b>${money(c.exp)}</b></div>
- <details open style="margin-top:8px"><summary>Đếm tiền cuối ca để đối soát kết ca</summary>${denHtml('end',{},endChk)}<div id="sDen" style="margin-top:8px"></div></details>
+ <details open style="margin-top:8px"><summary>Đếm tiền cuối ca để đối soát kết ca</summary>${denHtml('end',{},()=>{
+  $('sAct').value=fmt(denSum(DV.end))||'0';
+  endDiff(c.exp);
+  endChk();
+ })}<div id="sDen" style="margin-top:8px"></div></details>
  <label>Tiền mặt thực tế cuối ca (tự điền khi bạn đếm mệnh giá)</label><input id="sAct" type="text" inputmode="numeric" class="mi" oninput="endDiff(${c.exp})">
  <p id="sDiff"></p><div class="row"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="doEnd(${c.exp})">Kết thúc ca</button></div>`);E_C=c;denTot('end');endChk()}
 let E_C=null;
-function endDiff(exp){const v=$('sAct').value,d=num(v)-exp;$('sDiff').innerHTML=v===''?'':(d>=0?'Thừa ':'Thiếu ')+money(Math.abs(d));$('sDiff').className=d<0?'neg':'pos'}
+const cashDifference=d=>d===0?'Đủ':(d>0?'Thừa ':'Thiếu ')+money(Math.abs(d));
+function endDiff(exp){const v=$('sAct').value,d=num(v)-exp;$('sDiff').innerHTML=v===''?'':cashDifference(d);$('sDiff').className=d<0?'neg':'pos'}
 /* Đối soát cuối ca: so số tờ dự kiến (đầu ca + khách đưa − trả lại − chi) với số tờ đếm được */
 /* Các dòng so sánh số tờ dự kiến / đếm được của từng mệnh giá (dùng cho kết ca và đếm thực tế) */
 function denRows(expDen,a){return DENS.filter(d=>(expDen[d]||0)||(a[d]||0)).map(d=>{const e=expDen[d]||0,n=a[d]||0,x=n-e;
   return `<div class="row sp"><span>${dlab(d)}: dự kiến <b>${e}</b> · đếm <b>${n}</b></span><b class="${x<0?'neg':x>0?'pos':''}">${x===0?'khớp':(x>0?'thừa ':'thiếu ')+Math.abs(x)+' tờ'}</b></div>`}).join('')}
 /* ===== Đếm tiền mặt thực tế (bấm bất cứ lúc nào, không cần kết ca) ===== */
-let E_C2=null;
+let E_C2=null,countStarted=false;
 function countSheet(){
- const c=S.shift?shiftCalc(S.shift):null;E_C2=c;
+ const c=S.shift?shiftCalc(S.shift):null;E_C2=c;countStarted=false;
  sheet(`<h2 style="margin-top:0">Đếm tiền mặt thực tế</h2>
  <div class="mu">${c?'Ca đang chạy: dự kiến trong két '+money(c.exp)+'. Đếm xong sẽ so sánh ngay, không kết ca.':'Chưa bắt đầu ca nên chỉ đếm và lưu, không đối soát.'}</div>
- ${denHtml('cnt',{},cntChk)}<div id="cRes" style="margin-top:8px"></div>
+ ${denHtml('cnt',{},()=>{countStarted=true;cntChk()})}<div id="cRes" style="margin-top:8px"></div>
  <div class="row" style="margin-top:14px"><button class="f" onclick="closeSheet()">Đóng</button><button class="p f" onclick="saveCount()">Lưu lần đếm</button></div>
- ${(S.counts||[]).length?'<h2>Các lần đếm gần đây</h2>'+S.counts.slice(0,5).map(x=>`<div class="card">${dt(x.ts)} · <b>${money(x.total)}</b>${x.exp!=null?` · ${x.total-x.exp>=0?'thừa':'thiếu'} ${money(Math.abs(x.total-x.exp))} so với dự kiến`:''}</div>`).join(''):''}`);
+ <button style="width:100%;margin-top:8px" onclick="countHistory()">Lịch sử đếm tiền</button>`);
  denTot('cnt');cntChk()}
 function cntChk(){const a=DV.cnt,sum=denSum(a),c=E_C2;if(!$('cRes'))return;let h='';
- if(c){const d=sum-c.exp;h+=`<div class="row sp"><span>Dự kiến trong két</span><b>${money(c.exp)}</b></div><div class="row sp"><span>Chênh lệch</span><b class="${d<0?'neg':'pos'}">${sum?(d>=0?'Thừa ':'Thiếu ')+money(Math.abs(d)):'—'}</b></div>`+(sum?denRows(c.expDen,a):'')}
+ if(c){const d=sum-c.exp;h+=`<div class="row sp"><span>Dự kiến trong két</span><b>${money(c.exp)}</b></div><div class="row sp"><span>Chênh lệch</span><b class="${d<0?'neg':'pos'}">${countStarted||c.exp===0?cashDifference(d):'—'}</b></div>`+(sum?denRows(c.expDen,a):'')}
  $('cRes').innerHTML=h}
-function saveCount(){const sum=denSum(DV.cnt);if(!sum)return alert('Hãy nhập số tờ đã đếm.');
- const c=E_C2;S.counts=[{ts:Date.now(),total:sum,exp:c?c.exp:null,den:{...DV.cnt}},...(S.counts||[])].slice(0,30);save();closeSheet();toast('Đã lưu lần đếm')}
-function endChk(){const c=E_C,a=DV.end,sum=denSum(a);if(!c||!$('sDen'))return;
- if(sum){$('sAct').value=fmt(sum);endDiff(c.exp)}
+function saveCount(){
+ const total=denSum(DV.cnt),den={...DV.cnt},exp=E_C2?E_C2.exp:null;
+ const commit=()=>{
+  S.counts.unshift({ts:Date.now(),total,exp,den});
+  save();closeSheet();toast('Đã lưu lần đếm');
+ };
+ if(total===0)return ask('Anh xác nhận tiền mặt thực tế là 0đ?',commit,'Lưu 0đ');
+ commit();
+}
+const GUEST_PHRASES=[
+ {title:'Đón khách',phrases:[
+  ['Đã đến','I’ve arrived.','Tôi đến rồi.'],
+  ['Mời khách xuống','I’m here. Could you please come down?','Tôi đến rồi. Bạn xuống giúp tôi nhé?'],
+  ['Đợi ở lối vào chính','I’m waiting at the main entrance.','Tôi đang đợi ở lối vào chính.'],
+  ['Xác nhận điểm đón','Could you please confirm your pickup location?','Bạn xác nhận lại điểm đón giúp tôi nhé?'],
+  ['Hỏi khách đang ở đâu','Could you send me your location or tell me what’s nearby?','Bạn gửi vị trí hoặc cho tôi biết gần đó có gì nhé?'],
+  ['Đang trên đường','I’m on my way. I’ll message you when I arrive.','Tôi đang trên đường. Tới nơi tôi sẽ nhắn bạn.'],
+  ['Đang kẹt xe','I’m stuck in traffic and may be a few minutes late.','Tôi đang kẹt xe và có thể đến muộn vài phút.'],
+  ['Đưa mũ bảo hiểm','Here’s your helmet. Please fasten the strap.','Mũ bảo hiểm của bạn đây. Bạn cài quai giúp tôi nhé.']
+ ]},
+ {title:'Giao đồ ăn và giao hàng',phrases:[
+  ['Đã đến giao hàng','Hi, I’m your Grab delivery driver. I’m here with your order.','Chào bạn, tôi là tài xế giao hàng Grab. Tôi đã đến và mang theo đơn của bạn.'],
+  ['Mời khách xuống nhận','I’m downstairs with your order. Could you please come down to collect it?','Tôi đang ở dưới với đơn hàng. Bạn xuống nhận giúp tôi nhé?'],
+  ['Hỏi chỗ để hàng','Where would you like me to leave your order?','Bạn muốn tôi để đơn hàng ở đâu?'],
+  ['Đã gửi lễ tân','I’ve left your order at the reception desk.','Tôi đã để đơn hàng ở quầy lễ tân.']
+ ]},
+ {title:'Thanh toán',phrases:[
+  ['Hỏi về tiền mặt','Could you please have the cash ready?','Bạn chuẩn bị sẵn tiền mặt giúp tôi nhé?'],
+  ['Hỏi có tiền lẻ không','Do you have exact change, please?','Bạn có tiền vừa đủ không ạ?'],
+  ['Đã thanh toán qua app','You’ve already paid in the app. Thank you!','Bạn đã thanh toán qua ứng dụng rồi. Cảm ơn bạn!']
+ ]}
+];
+function guestPhraseSheet(){
+ sheet(`<div class="row sp"><h2 style="margin:0">Nhắn khách nước ngoài</h2><button class="s" onclick="closeSheet()">Đóng</button></div>
+ ${GUEST_PHRASES.map(({title,phrases})=>`<h2>${title}</h2>
+ ${phrases.map(([label,en,vi])=>`<div class="card">
+ <div class="mu">${label}</div><b lang="en">${en}</b><div class="mu">${vi}</div>
+ <button class="s" style="margin-top:8px" data-message="${esc(en)}" onclick="copyGuestPhrase(this)">Sao chép</button>
+ </div>`).join('')}`).join('')}`);
+}
+async function copyGuestPhrase(button){
+ const message=button.dataset.message;
+ try{await navigator.clipboard.writeText(message);toast('Đã sao chép câu tiếng Anh');return}catch(_){}
+ const field=document.createElement('textarea');
+ field.value=message;
+ field.readOnly=true;
+ field.style.cssText='position:fixed;left:0;top:0;opacity:0';
+ document.body.append(field);
+ field.select();
+ field.setSelectionRange(0,message.length);
+ let copied=false;
+ try{copied=document.execCommand('copy')}catch(_){}
+ if(copied){field.remove();toast('Đã sao chép câu tiếng Anh');return}
+ field.removeAttribute('style');
+ field.style.width='100%';
+ field.setAttribute('aria-label','Câu tiếng Anh để sao chép');
+ button.replaceWith(field);
+ field.focus();
+ field.select();
+ toast('Anh giữ vào câu tiếng Anh rồi chọn Sao chép.');
+}
+function countHistory(){
+ const entries=S.counts.map(entry=>({...entry,kind:'Đếm tiền mặt'}));
+ for(const shift of S.shift?[S.shift,...S.shifts]:S.shifts){
+  if(denSum(shift.openDen))entries.push({ts:shift.start,total:shift.open,den:shift.openDen,kind:'Đầu ca'});
+  if(denSum(shift.denEnd))entries.push({ts:shift.end,total:shift.act,exp:shift.exp,den:shift.denEnd,kind:'Cuối ca'});
+ }
+ entries.sort((a,b)=>b.ts-a.ts);
+ const date=ts=>new Date(ts).toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+ sheet(`<div class="row sp"><h2 style="margin:0">Lịch sử đếm tiền</h2><button class="s" onclick="closeSheet()">Đóng</button></div>
+ <div style="margin-top:12px">${entries.length?entries.map(entry=>{
+  const rows=DENS.filter(d=>Number(entry.den?.[d])>0).map(d=>`<div class="row sp"><span>${money(d)} × ${Number(entry.den[d])} tờ</span><b>${money(d*Number(entry.den[d]))}</b></div>`).join('');
+  const diff=entry.exp==null?'':`<div class="mu">Dự kiến ${money(entry.exp)} · <b class="${entry.total<entry.exp?'neg':'pos'}">${cashDifference(entry.total-entry.exp)}</b></div>`;
+  return `<details class="card"><summary class="row sp"><span>${entry.kind}<br><span class="mu">${date(entry.ts)}</span></span><b>${money(entry.total)}</b></summary>
+  ${diff}<div style="margin-top:8px">${rows||'<div class="mu">Chưa có số tờ theo mệnh giá.</div>'}</div></details>`;
+ }).join(''):'<div class="card mu">Chưa có lần đếm nào được lưu.</div>'}</div>`);
+}
+function endChk(){const c=E_C,a=DV.end;if(!c||!$('sDen'))return;
  const rows=denRows(c.expDen,a);
  const full=c.hasOpenDen&&c.withDen>=c.cashTrips;
  $('sDen').innerHTML=rows+`<div class="mu" style="margin-top:6px;font-size:12px;${full?'':'color:var(--wa)'}">Số tờ dự kiến = đầu ca + khách đưa − trả lại − chi. Hiện có ${c.hasOpenDen?'đã':'chưa'} đếm đầu ca, ${c.withDen}/${c.cashTrips} cuốc tiền mặt có nhập mệnh giá${full?'.':', nên số tờ dự kiến có thể chưa chính xác.'}</div>`}
@@ -485,6 +564,12 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 document.addEventListener('pointerdown',()=>{if(S.set.keepAwake&&!WL)wlOn(true)},{passive:true}); // lúc mở app chưa xin được thì thử lại khi chạm
 
 /* ================= TRANG CHỦ ================= */
+function countOrders(trips,includeType=()=>true){
+ return trips.reduce((total,t)=>{
+  const types=t.subs?.length?t.subs.map(order=>order.kind||t.type):[t.type];
+  return total+types.filter(includeType).length;
+ },0);
+}
 const WEEK_REWARDS={70:280000,110:500000,150:750000};
 function weekProgress(now=Date.now()){
  const start=new Date(now);
@@ -492,11 +577,8 @@ function weekProgress(now=Date.now()){
  start.setDate(start.getDate()-(start.getDay()+6)%7);
  const end=new Date(start);
  end.setDate(end.getDate()+7);
- const count=S.trips.filter(t=>{
-  if(t.status!=='done'||t.ts<+start||t.ts>=+end)return false;
-  if(t.subs?.length)return t.subs.some(order=>(order.kind||t.type)==='food');
-  return t.type==='bike'||t.type==='food';
- }).length;
+ const completed=S.trips.filter(t=>t.status==='done'&&t.ts>=+start&&t.ts<+end);
+ const count=countOrders(completed,type=>type==='bike'||type==='food');
  const goal=WEEK_REWARDS[S.set.weekGoal]?Number(S.set.weekGoal):70;
  const days=Math.max(1,7-(new Date(now).getDay()+6)%7);
  return {count,goal,remaining:Math.max(0,goal-count),days};
@@ -509,7 +591,7 @@ function weekCard(){
  <div class="bar" style="margin:6px 0"><i style="width:${Math.min(100,count/goal*100)}%"></i></div>
  <div class="seg t3">${Object.entries(WEEK_REWARDS).map(([target,reward])=>`<button type="button" class="${goal===Number(target)?'on':''}" aria-pressed="${goal===Number(target)}" onclick="setWeekGoal(${target})"><b>${target} cuốc</b><small>${money(reward)}</small></button>`).join('')}</div>
  <div class="mu">${remaining?`Cần trung bình <b>${Math.ceil(remaining/days)} cuốc/ngày</b> trong ${days} ngày còn lại, tính cả hôm nay.<br>`:''}Mốc ${goal} cuốc ước nhận <b>${money(WEEK_REWARDS[goal]*0.985)}</b> sau thuế 1,5%.</div>
- <details><summary>Cách đếm cuốc</summary><div class="mu">Chỉ tính GrabBike và GrabFood đã hoàn thành. Mỗi nhóm có đơn GrabFood tính 1 cuốc. Đối chiếu số cuốc đủ điều kiện trong Grab Driver.</div></details>
+ <details><summary>Cách đếm cuốc</summary><div class="mu">Chỉ tính GrabBike và GrabFood đã hoàn thành. Trong nhóm, mỗi đơn GrabFood tính riêng. Đối chiếu số cuốc đủ điều kiện trong Grab Driver.</div></details>
  </section>`;
 }
 function setWeekGoal(goal){S.set.weekGoal=goal;save();render()}
@@ -520,10 +602,11 @@ function viewHome(){
  let h=`<section class="card shift-card">
  <div class="row sp"><b>${c?'Ca đang chạy từ '+tm(S.shift.start):'Chưa mở ca'}</b>${c?'<button class="s d" onclick="endShift()">Kết thúc ca</button>':''}</div>
  ${c?`<div class="mu" style="margin-top:9px">Tiền mặt dự kiến trong két</div><div class="shift-money">${money(c.exp)}</div>
- <div class="shift-meta mu"><span>Đầu ca ${money(S.shift.open)}</span><span>${c.n} cuốc hoàn thành</span><span>Lãi ca ${money(c.profit)}</span></div>`:'<button class="p" style="width:100%;margin-top:12px" id="startShiftButton" type="button"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-play"/></svg> Bắt đầu ca</button>'}
+ <div class="shift-meta mu"><span>Đầu ca ${money(S.shift.open)}</span><span>${c.n} đơn hoàn thành</span><span>Lãi ca ${money(c.profit)}</span></div>`:'<button class="p" style="width:100%;margin-top:12px" id="startShiftButton" type="button"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-play"/></svg> Bắt đầu ca</button>'}
  </section>
  <div class="dash-actions"><button onclick="countSheet()"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-cash"/></svg> Đếm tiền mặt</button><button onclick="expForm()"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-expense"/></svg> Chi phí</button></div>
- <section class="card"><div class="row sp"><b>Thu nhập hôm nay</b><span class="mu">${done.length} cuốc hoàn thành</span></div>
+ <div class="dash-actions"><button class="s" onclick="countHistory()">Lịch sử đếm tiền</button><button class="s" onclick="guestPhraseSheet()">Nhắn khách nước ngoài</button></div>
+ <section class="card"><div class="row sp"><b>Thu nhập hôm nay</b><span class="mu">${countOrders(done)} đơn hoàn thành</span></div>
  <div class="big">${money(net)}</div>
  <div class="bar" style="margin:8px 0"><i style="width:${g?Math.min(100,net/g*100):0}%"></i></div>
  <div class="mu">Mục tiêu ${money(g)} · Chi phí ${money(exT)} · Còn lại <b class="${cls(net-exT)}">${money(net-exT)}</b></div></section>
@@ -532,7 +615,7 @@ function viewHome(){
  <div class="card"><div class="mu">Ví tài xế</div><div class="big">${money(S.driver.bal)}</div></div></div>`;
  h+=payOverview(done);
  if(ex.length)h+=`<h2>Chi phí hôm nay</h2>`+ex.map(e=>`<div class="card row sp"><span>${esc(e.note||'Chi phí')} <span class="mu">${e.cash?'· tiền mặt':''}</span></span><span><b>${money(e.amt)}</b> <button class="s d" onclick="delExp(${e.id})">Xoá</button></span></div>`).join('');
- h+=`<h2>Cuốc hôm nay (${tr.length})</h2>`+(tr.length?tr.slice().sort((a,b)=>b.ts-a.ts||b.id-a.id).map(t=>tripCard(t)).join(''):'<div class="card mu">Chưa có cuốc nào. Bấm “Thêm cuốc” để bắt đầu.</div>');
+ h+=`<h2>Đơn hôm nay (${countOrders(tr)})</h2>`+(tr.length?tr.slice().sort((a,b)=>b.ts-a.ts||b.id-a.id).map(t=>tripCard(t)).join(''):'<div class="card mu">Chưa có cuốc nào. Bấm “Thêm cuốc” để bắt đầu.</div>');
  return h}
 function expForm(){sheet(`<h2 style="margin-top:0">Ghi chi phí</h2><div class="chips" style="margin:0 0 6px">${['Xăng','Gửi xe','Ăn uống','Sửa xe'].map(x=>`<button class="s" onclick="$('eN').value='${x}'">${x}</button>`).join('')}</div>
  <label>Nội dung</label><input id="eN"><label>Số tiền</label><input id="eA" type="text" inputmode="numeric" class="mi">
@@ -582,7 +665,8 @@ function viewStats(){
  const ex=S.exps.filter(inR).reduce((a,e)=>a+e.amt,0),sum=(a,f)=>a.reduce((s,t)=>s+f(t),0);
  const rev=sum(done,t=>t.due),bon=sum(done,t=>t.bonus||0),tip=sum(done,t=>t.tip||0),tipO=sum(done,t=>t.tipOut||0),net=sum(done,inc),fee=sum(done.filter(t=>t.type!=='ngoai'),t=>t.due-t.net);
  const bk=done.filter(t=>t.type==='bike'),bp=sum(bk,t=>t.due)?sum(bk,t=>t.due-t.net)/sum(bk,t=>t.due)*100:0;
- const cnt=Object.keys(TYPES).map(k=>TYPES[k]+': '+done.filter(t=>t.type===k).length).join(' · ');
+ const completedOrders=countOrders(done);
+ const cnt=Object.keys(TYPES).map(k=>TYPES[k]+': '+countOrders(done,type=>type===k)).join(' · ');
  // Biểu đồ cột theo ngày (tối đa 31 ngày gần nhất trong khoảng)
  const days={};done.forEach(t=>{const k=dkey(t.ts);days[k]=(days[k]||0)+inc(t)});
  let ks=[];if(from!=='0000'&&to!=='9999'){for(let d=new Date(to+'T00:00');dkey(d)>=from&&ks.length<31;d.setDate(d.getDate()-1))ks.unshift(dkey(d))}else ks=Object.keys(days).sort().slice(-31);
@@ -595,7 +679,7 @@ function viewStats(){
  <div style="flex:1"><label>Thanh toán</label><select onchange="F.pay=this.value;render()"><option value="">Tất cả</option>${opt(PAYS,F.pay)}</select></div></div></div>
  <div class="grid"><div class="card"><div class="mu">Doanh thu</div><b class="big" style="font-size:20px">${money(rev)}</b></div><div class="card"><div class="mu">Tổng phí</div><b class="big" style="font-size:20px">${money(fee)}</b></div>
  <div class="card"><div class="mu">Thực nhận</div><b class="big" style="font-size:20px">${money(net)}</b></div><div class="card"><div class="mu">Lợi nhuận sau chi phí</div><b class="big ${cls(net-ex)}" style="font-size:20px">${money(net-ex)}</b></div></div>
- <div class="card" style="margin-top:10px">Tiền thưởng cuốc (đã tính trong thực nhận): <b>${money(bon)}</b><br>Tip (đã tính trong thực nhận): <b>${money(tip)}</b><br>Tip ngoài (đã tính trong thực nhận): <b>${money(tipO)}</b><br>Chi phí: <b>${money(ex)}</b><br>Số cuốc hoàn thành: <b>${done.length}</b><br><span class="mu">${cnt}</span><br>Thu nhập TB/cuốc: <b>${money(done.length?net/done.length:0)}</b><br>% Grab lấy TB (Bike): <b>${bp.toFixed(1)}%</b> · % bạn nhận TB: <b>${bk.length?(100-bp).toFixed(1):0}%</b></div>
+ <div class="card" style="margin-top:10px">Tiền thưởng cuốc (đã tính trong thực nhận): <b>${money(bon)}</b><br>Tip (đã tính trong thực nhận): <b>${money(tip)}</b><br>Tip ngoài (đã tính trong thực nhận): <b>${money(tipO)}</b><br>Chi phí: <b>${money(ex)}</b><br>Số đơn hoàn thành: <b>${completedOrders}</b><br><span class="mu">${cnt}</span><br>Thu nhập TB/đơn: <b>${money(completedOrders?net/completedOrders:0)}</b><br>% Grab lấy TB (Bike): <b>${bp.toFixed(1)}%</b> · % bạn nhận TB: <b>${bk.length?(100-bp).toFixed(1):0}%</b></div>
  ${payOverview(done)}
  <div class="card mu" style="font-size:13px;line-height:1.6"><b style="color:var(--tx)">Cách tính</b><br>
  • <b>Doanh thu</b> = cộng “tiền phải thu” của các cuốc hoàn thành (cuốc ngoài: số tiền khách trả) = ${money(rev)}<br>
@@ -609,8 +693,8 @@ function viewStats(){
  <div class="cw">${ks.map(k=>{const v=days[k]||0,wd=['CN','T2','T3','T4','T5','T6','T7'][new Date(k+'T00:00').getDay()];
   return `<div class="cc" onclick="$('cinfo').innerHTML='<b>${wd} ${k.slice(8)}/${k.slice(5,7)}</b>: ${money(v)}'"><span class="cv">${v?short(v):'–'}</span>
   <div class="cb"><i style="height:${v?Math.max(4,v/mx*100):0}%;${v&&v===mx?'background:var(--wa)':''}"></i></div><span class="cd">${k.slice(8)}/${k.slice(5,7)}</span><span class="cd" style="opacity:.7">${wd}</span></div>`}).join('')}</div></div>
- <div class="row sp"><h2>Danh sách cuốc (${tr.length})</h2>${tr.length?'<button class="s d" onclick="delFiltered()">Xoá danh sách này</button>':''}</div>`+(tr.length?tr.slice().sort((a,b)=>b.ts-a.ts||b.id-a.id).map(t=>tripCard(t)).join(''):'<div class="card mu">Không có cuốc phù hợp bộ lọc.</div>')+
- (S.shifts.length?'<h2>Các ca đã kết thúc</h2>'+S.shifts.slice(0,15).map(s=>`<div class="card">${dt(s.start)} → ${tm(s.end)} · ${s.n} cuốc<br>Thực nhận ${money(s.net)} · Lợi nhuận <b class="${cls(s.profit)}">${money(s.profit)}</b><br>Tiền mặt: dự kiến ${money(s.exp)}, thực tế ${money(s.act)} → <b class="${cls(s.diff)}">${s.diff>=0?'thừa':'thiếu'} ${money(Math.abs(s.diff))}</b>${denLines(s)}</div>`).join(''):'')}
+ <div class="row sp"><h2>Danh sách đơn (${countOrders(tr)})</h2>${tr.length?'<button class="s d" onclick="delFiltered()">Xoá danh sách này</button>':''}</div>`+(tr.length?tr.slice().sort((a,b)=>b.ts-a.ts||b.id-a.id).map(t=>tripCard(t)).join(''):'<div class="card mu">Không có cuốc phù hợp bộ lọc.</div>')+
+ (S.shifts.length?'<h2>Các ca đã kết thúc</h2>'+S.shifts.slice(0,15).map(s=>`<div class="card">${dt(s.start)} → ${tm(s.end)} · ${s.n} cuốc<br>Thực nhận ${money(s.net)} · Lợi nhuận <b class="${cls(s.profit)}">${money(s.profit)}</b><br>Tiền mặt: dự kiến ${money(s.exp)}, thực tế ${money(s.act)} → <b class="${cls(s.diff)}">${cashDifference(s.diff)}</b>${denLines(s)}</div>`).join(''):'')}
 
 /* ================= CÀI ĐẶT ================= */
 function viewSet(){
