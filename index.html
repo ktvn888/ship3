@@ -87,6 +87,12 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid
 .driver-avatar{display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--ln);border-radius:50%;color:var(--ac);background:var(--ac2);font-size:15px;font-weight:750}
 nav .ui-icon{display:block;width:22px;height:22px;margin:0 auto 3px}
 .weekly h2 .ui-icon{color:var(--ac)}
+.daily-goals{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.daily-goals th,.daily-goals td{text-align:left;padding:6px;border-bottom:1px solid var(--ln)}
+.daily-goals thead{color:var(--mu)}
+.daily-goals tbody td:last-child{font-weight:700}
+.daily-goals small{display:block;color:var(--ac);font-weight:700}
+.daily-today{background:var(--ac2)}
 </style>
 </head>
 <body>
@@ -575,22 +581,45 @@ function weekProgress(now=Date.now()){
  const start=new Date(now);
  start.setHours(0,0,0,0);
  start.setDate(start.getDate()-(start.getDay()+6)%7);
- const end=new Date(start);
- end.setDate(end.getDate()+7);
- const completed=S.trips.filter(t=>t.status==='done'&&t.ts>=+start&&t.ts<+end);
- const count=countOrders(completed,type=>type==='bike'||type==='food');
  const goal=WEEK_REWARDS[S.set.weekGoal]?Number(S.set.weekGoal):70;
- const days=Math.max(1,7-(new Date(now).getDay()+6)%7);
- return {count,goal,remaining:Math.max(0,goal-count),days};
+ const today=dkey(now);
+ const daily=Array.from({length:7},(_,index)=>{
+  const date=new Date(start);
+  date.setDate(start.getDate()+index);
+  const next=new Date(date);
+  next.setDate(date.getDate()+1);
+  const completed=S.trips.filter(t=>t.status==='done'&&t.ts>=+date&&t.ts<+next);
+  const count=countOrders(completed,type=>type==='bike'||type==='food');
+  const target=Math.floor(goal/7)+(index<goal%7?1:0);
+  const key=dkey(date);
+  return {date,count,target,isToday:key===today,isFuture:key>today};
+ });
+ const count=daily.reduce((total,day)=>total+day.count,0);
+ const days=daily.filter(day=>day.isToday||day.isFuture).length;
+ return {count,goal,remaining:Math.max(0,goal-count),days,daily};
 }
+function dailyGoalTable(daily){
+ return `<h3 style="margin:14px 0 4px;font-size:15px">Mốc từng ngày</h3>
+ <table class="daily-goals"><thead><tr><th scope="col">Ngày</th><th scope="col">Đã chạy / Mốc</th><th scope="col">Kết quả</th></tr></thead>
+ <tbody>${daily.map((day,index)=>{
+  const diff=day.count-day.target;
+  const status=day.isFuture?'Sắp tới':diff>0?'Dư '+diff:diff<0?'Thiếu '+Math.abs(diff):'Đủ';
+  const color=day.isFuture?'mu':diff<0?'warn':'pos';
+  const label=index===6?'CN':'T'+(index+2);
+  return `<tr class="${day.isToday?'daily-today':''}"><th scope="row">${label} ${day.date.getDate()}/${day.date.getMonth()+1}${day.isToday?'<small>Hôm nay</small>':''}</th>
+  <td>${day.count} / ${day.target}</td><td class="${color}">${status}</td></tr>`;
+ }).join('')}</tbody></table>`;
+}
+
 function weekCard(){
- const {count,goal,remaining,days}=weekProgress();
+ const {count,goal,remaining,days,daily}=weekProgress();
  return `<section class="card weekly" aria-labelledby="weekTitle">
  <div class="row sp"><h2 id="weekTitle"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><use href="#icon-trophy"/></svg> Thưởng tuần</h2><span class="mu">Thứ 2 – Chủ nhật</span></div>
  <div class="row sp"><b class="big">${count} / ${goal} cuốc</b><span class="${remaining?'mu':'pos'}">${remaining?'Còn '+remaining+' cuốc':'Đã chạm mốc'}</span></div>
  <div class="bar" style="margin:6px 0"><i style="width:${Math.min(100,count/goal*100)}%"></i></div>
  <div class="seg t3">${Object.entries(WEEK_REWARDS).map(([target,reward])=>`<button type="button" class="${goal===Number(target)?'on':''}" aria-pressed="${goal===Number(target)}" onclick="setWeekGoal(${target})"><b>${target} cuốc</b><small>${money(reward)}</small></button>`).join('')}</div>
  <div class="mu">${remaining?`Cần trung bình <b>${Math.ceil(remaining/days)} cuốc/ngày</b> trong ${days} ngày còn lại, tính cả hôm nay.<br>`:''}Mốc ${goal} cuốc ước nhận <b>${money(WEEK_REWARDS[goal]*0.985)}</b> sau thuế 1,5%.</div>
+ ${dailyGoalTable(daily)}
  <details><summary>Cách đếm cuốc</summary><div class="mu">Chỉ tính GrabBike và GrabFood đã hoàn thành. Trong nhóm, mỗi đơn GrabFood tính riêng. Đối chiếu số cuốc đủ điều kiện trong Grab Driver.</div></details>
  </section>`;
 }
