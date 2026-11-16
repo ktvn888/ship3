@@ -583,6 +583,7 @@ function weekProgress(now=Date.now()){
  start.setDate(start.getDate()-(start.getDay()+6)%7);
  const goal=WEEK_REWARDS[S.set.weekGoal]?Number(S.set.weekGoal):70;
  const today=dkey(now);
+ let toAllocate=goal;
  const daily=Array.from({length:7},(_,index)=>{
   const date=new Date(start);
   date.setDate(start.getDate()+index);
@@ -590,9 +591,10 @@ function weekProgress(now=Date.now()){
   next.setDate(date.getDate()+1);
   const completed=S.trips.filter(t=>t.status==='done'&&t.ts>=+date&&t.ts<+next);
   const count=countOrders(completed,type=>type==='bike'||type==='food');
-  const target=Math.floor(goal/7)+(index<goal%7?1:0);
-  const key=dkey(date);
-  return {date,count,target,isToday:key===today,isFuture:key>today};
+  const target=Math.ceil(toAllocate/(7-index));
+  const key=dkey(date),isFuture=key>today;
+  toAllocate=Math.max(0,toAllocate-(isFuture?target:count));
+  return {date,count,target,isToday:key===today,isFuture};
  });
  const count=daily.reduce((total,day)=>total+day.count,0);
  const days=daily.filter(day=>day.isToday||day.isFuture).length;
@@ -620,6 +622,7 @@ function weekCard(){
  <div class="seg t3">${Object.entries(WEEK_REWARDS).map(([target,reward])=>`<button type="button" class="${goal===Number(target)?'on':''}" aria-pressed="${goal===Number(target)}" onclick="setWeekGoal(${target})"><b>${target} cuốc</b><small>${money(reward)}</small></button>`).join('')}</div>
  <div class="mu">${remaining?`Cần trung bình <b>${Math.ceil(remaining/days)} cuốc/ngày</b> trong ${days} ngày còn lại, tính cả hôm nay.<br>`:''}Mốc ${goal} cuốc ước nhận <b>${money(WEEK_REWARDS[goal]*0.985)}</b> sau thuế 1,5%.</div>
  ${dailyGoalTable(daily)}
+ <div class="mu" style="margin-top:8px">Mốc ngày sau tự chia lại theo số cuốc còn thiếu của tuần. Hôm nay chạy thêm thì mốc ngày sau giảm.</div>
  <details><summary>Cách đếm cuốc</summary><div class="mu">Chỉ tính GrabBike và GrabFood đã hoàn thành. Trong nhóm, mỗi đơn GrabFood tính riêng. Đối chiếu số cuốc đủ điều kiện trong Grab Driver.</div></details>
  </section>`;
 }
